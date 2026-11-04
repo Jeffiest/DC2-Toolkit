@@ -723,7 +723,7 @@
   {
     "file": "ps2/include/effscript.hpp",
     "find": "STATIC_ASSERT(sizeof(_EFF_SCRIPT) == 0x150);",
-    "replace": "STATIC_ASSERT(sizeof(_EFF_SCRIPT) == 0x150);\n\nconstexpr int EFF_SPT_RUNTIME_QUADWORDS = (sizeof(_EFF_SCRIPT) + 15) / 16 + 2 + (sizeof(CCharacter2) + 15) / 16 + 2 + (64 * sizeof(RS_STACKDATA) + 15) / 16 + 2 * sizeof(RS_CALLDATA) / 16 - 1;"
+    "replace": "STATIC_ASSERT(sizeof(_EFF_SCRIPT) == 0x150);\n\nconstexpr int EFF_SPT_RUNTIME_QUADWORDS = (sizeof(_EFF_SCRIPT) + 15) / 16 + 2 + (sizeof(CCharacter2) + 15) / 16 + 2 + (64 * sizeof(RS_STACKDATA) + 15) / 16 + 2 * sizeof(RS_CALLDATA) / 16 + 1;"
   },
   {
     "file": "ps2/src/effscript.cpp",
