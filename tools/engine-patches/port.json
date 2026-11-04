@@ -2271,5 +2271,15 @@
     "file": "ps2/src/title.cpp",
     "find": "            if (TitleMCCheckKey() != 0) {\n                TitleMCCheck->FinishForMC();\n                TitleInfo->next_mode = TITLE_MODE_COPYRIGHT;\n            }",
     "replace": "            if (TitleMCCheckKey() != 0) {\n                if (port_boot_save(TitleMCCheck)) {\n                    next_loop = 2;\n                }\n\n                TitleMCCheck->FinishForMC();\n                TitleInfo->next_mode = port_skip_intro() ? TITLE_MODE_TITLE : TITLE_MODE_COPYRIGHT;\n            }"
+  },
+  {
+    "file": "ps2/src/scriptinterpreter.cpp",
+    "find": "int CScriptInterpreter::GetNextTAG(int call) {\n    char      string_storage[SPI_STRING_BUFF_SIZE];\n    SPI_STACK arguments[SPI_STACK_SIZE];\n    int       index;",
+    "replace": "int CScriptInterpreter::GetNextTAG(int call) {\n    char      *string_storage = string_buff;\n    SPI_STACK *arguments = stack;\n    int       index;"
+  },
+  {
+    "file": "ps2/src/scriptinterpreter.cpp",
+    "find": "void CScriptInterpreter::Run() {\n    while (GetNextTAG(1) >= 0) {",
+    "replace": "void CScriptInterpreter::Run() {\n    char      string_storage[SPI_STRING_BUFF_SIZE];\n    SPI_STACK arguments[SPI_STACK_SIZE];\n    SetStringBuff(string_storage, SPI_STRING_BUFF_SIZE);\n    SetStack(arguments, SPI_STACK_SIZE);\n\n    while (GetNextTAG(1) >= 0) {"
   }
 ]
