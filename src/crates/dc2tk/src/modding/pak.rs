@@ -21,10 +21,11 @@ pub fn run_mod_build(
     output: &Path,
     mods_dir: &ModsDir,
     common: &Common,
+    profile: dc2tk_assets::limits::Profile,
 ) -> Result<ExitCode> {
     let mod_dir = mods::by_id(mods_dir.path(), id)?;
     let own = manifest::read(&mod_dir)?;
-    let (built, binary) = build::built_game_files(source, disc, &[id.to_string()], None, mods_dir, common)?;
+    let (built, binary) = build::built_game_files(source, disc, &[id.to_string()], None, mods_dir, common, profile)?;
     if binary {
         bail!(
             "{id} changes the game's code (engine or port code, or the executable's tables), so it needs its own game \

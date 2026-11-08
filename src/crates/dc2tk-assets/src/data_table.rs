@@ -24,6 +24,7 @@ use serde_json::{Map, Value};
 
 use crate::cfg_text::{self, Arg, Edit, Script, To};
 use crate::elf::Patch;
+use crate::limits::{self, Limits};
 use crate::{bail, Context, Result};
 
 /// What a value is and the values the engine's field takes.
@@ -101,7 +102,7 @@ pub struct Adding {
     pub counts: Vec<(usize, usize, usize)>,
     /// The most records a file (a set of copies) holds, and what holds them.
     pub most: usize,
-    pub why: &'static str,
+    pub why: String,
     /// The key that is a record's place among its file's records (new ones continue from the
     /// last); the other keys are written into the copy at (key, tag, argument), or, when not
     /// there either, are the like record's own (a town).
@@ -254,6 +255,8 @@ pub struct Table {
     /// Where the engine copies every string argument of a file, each in 16-byte units, into a
     /// heap of this many units that refuses the allocation reaching its end: (units, the heap).
     pub string_units: Option<(usize, &'static str)>,
+    /// The profile's limits the edits are checked against (the arguments a statement holds).
+    pub capacity: Limits,
 }
 
 /// Whether two values are the same to the engine (an int and the float of it are; two ints are
@@ -464,7 +467,20 @@ fn entry_texts(
 
 impl Table {
     pub fn new(what: &str, scripts: Vec<Script>, elf: Vec<u8>) -> Table {
-        Table { what: what.to_string(), scripts, elf, sections: Vec::new(), limits: Vec::new(), string_units: None }
+        Table::new_with(what, scripts, elf, &limits::RETAIL)
+    }
+
+    /// A table whose edits are checked against a profile's limits.
+    pub fn new_with(what: &str, scripts: Vec<Script>, elf: Vec<u8>, capacity: &Limits) -> Table {
+        Table {
+            what: what.to_string(),
+            scripts,
+            elf,
+            sections: Vec::new(),
+            limits: Vec::new(),
+            string_units: None,
+            capacity: *capacity,
+        }
     }
 
     /// Adds a section of records with these keys.
@@ -706,8 +722,14 @@ impl Table {
                 );
             }
             let key_texts = section.key_texts(new, place)?;
-            let copy = Table::new(&self.what, self.copied_statements(adding, new, &key_texts)?, Vec::new());
-            let texts = cfg_text::apply_edits(&copy.scripts, &copy.copy_edits(section, new)?)?;
+            let copy = Table::new_with(
+                &self.what,
+                self.copied_statements(adding, new, &key_texts)?,
+                Vec::new(),
+                &self.capacity,
+            );
+            let texts =
+                cfg_text::apply_edits(&copy.scripts, &copy.copy_edits(section, new)?, self.capacity.statement_args)?;
             for (&(file, ..), text) in new.like.block.iter().zip(texts) {
                 // after the last record of the group in the file
                 let after = section
@@ -949,7 +971,7 @@ impl Table {
 
     /// The scripts with the edits made.
     pub fn apply(&self, edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
-        let written = cfg_text::apply_edits(&self.scripts, edits)?;
+        let written = cfg_text::apply_edits(&self.scripts, edits, self.capacity.statement_args)?;
         for &(file, most, why) in &self.limits {
             if written[file].len() > most && written[file] != self.scripts[file].write() {
                 bail!(
@@ -1334,7 +1356,7 @@ mod tests {
         table.adding(Adding {
             counts: vec![(0, 0, 0), (1, 0, 0)],
             most: 3,
-            why: "three houses",
+            why: "three houses".into(),
             place: Some("house"),
             key_args: vec![("house", "REC", 0, Kind::Int(0, 2))],
             label_args: vec![("name", "REC", 1, 8)],

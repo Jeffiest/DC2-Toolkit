@@ -430,7 +430,7 @@ impl Ideas {
 
     /// The copies with the edits made; a copy past LoadFilePictureName's buffer is refused.
     pub fn apply(&self, edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
-        let written = cfg_text::apply_edits(&self.scripts, edits)?;
+        let written = cfg_text::apply_edits(&self.scripts, edits, cfg_text::ARGS_MOST)?;
         for (file, data) in written.iter().enumerate() {
             if data.len() > FILE_MOST {
                 bail!("{} would be {} bytes; LoadFilePictureName reads it into {FILE_MOST}", paths()[file], data.len());

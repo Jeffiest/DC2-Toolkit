@@ -8,7 +8,7 @@ import os
 import bpy
 from bpy.props import EnumProperty
 
-from . import budgets, c2data, export_mod, import_map, prefs, runner, schema, scripts, tools
+from . import budgets, c2data, export_mod, import_map, limits, prefs, runner, schema, scripts, tools
 
 TEST_MOD = "test-here"
 TEST_MOD_ID = "local.test-here"
@@ -248,6 +248,7 @@ class DC2TK_OT_preview_changes(bpy.types.Operator):
             return None
         command = dc2tk + [
             "build", source, disc, "--dry-run", "--mods", os.path.dirname(mod_dir), "--mod", export_mod.mod_id(mod_dir),
+            "--limits", limits.profile(context),
         ]
         return ("dc2tk build --dry-run", command, prefs.working_dir(prefs.get(context)))
 
@@ -372,7 +373,8 @@ class DC2TK_OT_test_here(bpy.types.Operator):
         obj = context.active_object
         world = obj.matrix_world.copy() if self.source == "ACTIVE" and obj is not None else context.scene.cursor.matrix.copy()
         mods_dir = os.path.dirname(mod_dir)
-        command = dc2tk + ["build", source, disc, "-o", output, "--mods", mods_dir, "--mod", export_mod.mod_id(mod_dir)]
+        command = dc2tk + ["build", source, disc, "-o", output, "--mods", mods_dir, "--mod", export_mod.mod_id(mod_dir),
+                           "--limits", limits.profile(context)]
         report = scripts.info(root)
         has_script = bool(report.get("scripts")) if report else True
         if name in new_maps(mod_dir) or not has_script:

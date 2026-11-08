@@ -29,7 +29,7 @@ use rayon::prelude::*;
 use dc2tk_disc::{extract, iso, Image};
 use dc2tk_script::{asm, build, definitions, natives, stb};
 
-use options::{Common, NativesArg};
+use options::{Common, LimitsArg, NativesArg};
 
 #[derive(Parser)]
 #[command(name = "dc2tk", about = "Extract every DC2 asset into formats you can edit, and rebuild a playable disc")]
@@ -194,6 +194,8 @@ enum Command {
         #[command(flatten)]
         mods: options::ModsDir,
         #[command(flatten)]
+        limits: LimitsArg,
+        #[command(flatten)]
         common: Common,
         /// PCSX2's executable; else $PCSX2, the PATH or the usual install folder.
         #[arg(long)]
@@ -211,6 +213,13 @@ enum Command {
     Defs {
         #[command(subcommand)]
         command: defs::DefsCommand,
+    },
+    /// List the capacity limits content is checked against, in both profiles: retail (the PS2
+    /// game's) and port (the raised engine's). docs/guide/limits.md explains them.
+    Limits {
+        /// Write the table as JSON, as the Blender add-on's dc2tk_maps/limits.json holds it.
+        #[arg(long)]
+        json: bool,
     },
     /// Save flags (or save counters) the scripts and engine use, and which are free.
     Flags {
@@ -426,8 +435,8 @@ fn run(command: &Command) -> Result<ExitCode> {
         }
         Command::Build(args) => modding::run_build(args),
         Command::Mod { command } => modding::run_mod(command),
-        Command::Play { image, native: true, set, source, build_only, mods, common, .. } => {
-            modding::run_native(image, set.as_deref(), source, *build_only, mods, common)
+        Command::Play { image, native: true, set, source, build_only, mods, limits, common, .. } => {
+            modding::run_native(image, set.as_deref(), source, *build_only, mods, common, limits.limits)
         }
         Command::Play { image, pcsx2, full_boot, .. } => {
             let found = modding::launch(image, pcsx2.as_deref(), !*full_boot)?;
@@ -436,6 +445,14 @@ fn run(command: &Command) -> Result<ExitCode> {
         }
         Command::Memcard { command } => memcard::run(command),
         Command::Defs { command } => defs::run(command),
+        Command::Limits { json } => {
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&dc2tk_assets::limits::to_json())?);
+            } else {
+                print!("{}", dc2tk_assets::limits::text());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Flags { source, used, flag, counters, counter, common } => {
             run_flags(source, *used, *counters || counter.is_some(), flag.or(*counter), common)
         }

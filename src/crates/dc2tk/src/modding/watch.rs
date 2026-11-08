@@ -47,6 +47,8 @@ pub struct WatchArgs {
     #[command(flatten)]
     mods: ModsDir,
     #[command(flatten)]
+    limits: crate::options::LimitsArg,
+    #[command(flatten)]
     common: Common,
 }
 
@@ -97,8 +99,15 @@ fn joined_paths(paths: &[PathBuf]) -> String {
 /// ones written, ones a previous run wrote and this build no longer changes removed.
 fn rebuild(args: &WatchArgs, folder: &Path) -> Result<()> {
     let started = Instant::now();
-    let (built, executable) =
-        build::built_game_files(&args.source, &args.disc, &args.names, None, &args.mods, &args.common)?;
+    let (built, executable) = build::built_game_files(
+        &args.source,
+        &args.disc,
+        &args.names,
+        None,
+        &args.mods,
+        &args.common,
+        args.limits.limits,
+    )?;
     if executable {
         println!("note: the mods change the executable (engine files or executable tables): rebuild the port for that");
     }

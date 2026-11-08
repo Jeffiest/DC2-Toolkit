@@ -23,6 +23,7 @@ use serde_json::{Map, Value};
 use crate::cfg_text::{self, Arg, Edit, Script, To};
 use crate::data_table::{self, same, set_piece, value_text, values_of, Kind, B16, B8, S16};
 use crate::lang::{converted_len, name_bytes, ENGLISH, LANGUAGE_NAMES};
+use crate::limits::Limits;
 use crate::{bail, Context, Result};
 
 /// Where the engine reads the tables (`menu/cfg7/%s`, LoadGameDataAnalyze).
@@ -43,10 +44,6 @@ pub const NAME_FILES: [&str; 7] = [
     "comdatmes5.cfg",
     "comdatmes6.cfg",
 ];
-/// local_com_itemdata[432]: the COM records the engine holds (InitItemMes clears 0x1B0).
-pub const COMMON_MOST: usize = 432;
-/// local_itemdatano_converttable[512]; GetCommonData takes 1 to 0x1FF.
-pub const ITEM_MOST: i64 = 0x1FF;
 /// LoadGameDataAnalyze and LoadItemSystemMes read each script into a 0x7800-byte stack buffer,
 /// aligned to 64 bytes first (MenuCalcBufAlignment), which loses at most 0x40 of it (see
 /// georama_data::DOWNLOAD_BUFFER, which counts on a 16-byte-aligned start).
@@ -214,6 +211,10 @@ struct Located {
 pub struct Items {
     scripts: Vec<Script>,
     records: Vec<Record>,
+    /// The profile's limits: `common_items` (local_com_itemdata, the COM records the engine
+    /// holds; InitItemMes clears 0x1B0 of them in retail), `item_numbers` (the highest number
+    /// local_itemdatano_converttable takes) and `statement_args`.
+    limits: Limits,
 }
 
 #[derive(Clone, Debug)]
@@ -235,10 +236,29 @@ struct FamilyTable {
     count: &'static str,
     last: &'static str,
     /// The most entries the engine holds.
-    most: usize,
+    most: Most,
     /// Whether an entry names its item first (an effect, ridepod part, fish or guard); a weapon's
     /// or attachment's block is the n-th, for list number n, and names none.
     by_item: bool,
+}
+
+/// The records a family table holds: a size the engine keeps in every profile, or one of the
+/// profile's (local_weapondata, WEAPON_DATA_MAX; local_itemdata, ITEM_DATA_MAX).
+#[derive(Clone, Copy, Debug)]
+enum Most {
+    Fixed(usize),
+    Weapons,
+    Items,
+}
+
+impl Most {
+    fn of(self, limits: &Limits) -> usize {
+        match self {
+            Most::Fixed(most) => most,
+            Most::Weapons => limits.weapon_records,
+            Most::Items => limits.item_records,
+        }
+    }
 }
 
 /// The family tables: local_weapondata[116], local_attachdata[38], local_itemdata[162],
@@ -249,7 +269,7 @@ const FAMILY_TABLES: [FamilyTable; 6] = [
         file: WEPDAT,
         count: "WEPNUM",
         last: "WEP_BUILD",
-        most: 116,
+        most: Most::Weapons,
         by_item: false,
     },
     FamilyTable {
@@ -257,7 +277,7 @@ const FAMILY_TABLES: [FamilyTable; 6] = [
         file: ATDAT,
         count: "AT_INIT",
         last: "AT_ST_SP",
-        most: 38,
+        most: Most::Fixed(38),
         by_item: false,
     },
     FamilyTable {
@@ -265,7 +285,7 @@ const FAMILY_TABLES: [FamilyTable; 6] = [
         file: ITEMDAT,
         count: "ITEMINIT",
         last: "ITEM",
-        most: 162,
+        most: Most::Items,
         by_item: true,
     },
     FamilyTable {
@@ -273,11 +293,25 @@ const FAMILY_TABLES: [FamilyTable; 6] = [
         file: ROBODAT,
         count: "ROBOINIT",
         last: "RB_PARTS",
-        most: 68,
+        most: Most::Fixed(68),
         by_item: true,
     },
-    FamilyTable { families: &[Family::Fish], file: FISHDAT, count: "FISHINIT", last: "FISH", most: 20, by_item: true },
-    FamilyTable { families: &[Family::Clothing], file: GRDDAT, count: "GRDNUM", last: "GRD", most: 40, by_item: true },
+    FamilyTable {
+        families: &[Family::Fish],
+        file: FISHDAT,
+        count: "FISHINIT",
+        last: "FISH",
+        most: Most::Fixed(20),
+        by_item: true,
+    },
+    FamilyTable {
+        families: &[Family::Clothing],
+        file: GRDDAT,
+        count: "GRDNUM",
+        last: "GRD",
+        most: Most::Fixed(40),
+        by_item: true,
+    },
 ];
 
 /// A new item a mod gives: its number and label, the mod, what it gives and the item it is like.
@@ -526,7 +560,7 @@ impl<'s> Entries<'s> {
 impl Items {
     /// The tables from the seven scripts (by [`FILES`]) and the English names, as the engine
     /// fills them.
-    pub fn read(files: &[Vec<u8>], names: Option<&[u8]>) -> Result<Items> {
+    pub fn read(files: &[Vec<u8>], names: Option<&[u8]>, limits: &Limits) -> Result<Items> {
         if files.len() != FILES.len() && files.len() != FILES.len() + NAME_FILES.len() {
             bail!("the item data is {} scripts (and the {} name files)", FILES.len(), NAME_FILES.len());
         }
@@ -547,7 +581,7 @@ impl Items {
             .filter(|(_, statement)| statement.tag == "COM")
             .map(|(com, _)| entries.record(com, &shown))
             .collect();
-        Ok(Items { scripts, records })
+        Ok(Items { scripts, records, limits: *limits })
     }
 
     /// The number of records (COM statements).
@@ -955,11 +989,12 @@ impl Items {
         texts: &mut Vec<ItemText>,
     ) -> Result<()> {
         let total = self.records.len() + added.len();
-        if total > COMMON_MOST {
+        let most = self.limits.common_items;
+        if total > most {
             bail!(
-                "{} new items make {total}; the game holds {COMMON_MOST} items (local_com_itemdata), {} more than the disc's",
+                "{} new items make {total}; the game holds {most} items (local_com_itemdata), {} more than the disc's",
                 added.len(),
-                COMMON_MOST - self.records.len()
+                most.saturating_sub(self.records.len())
             );
         }
         let Some(last_com) = self.last_tagged(COMDAT, "COM") else {
@@ -981,8 +1016,9 @@ impl Items {
     fn new_item<'a>(&'a self, item: i64, object: &'a Map<String, Value>, module: &'a str) -> Result<NewItem<'a>> {
         let label = format!("new item {item}");
         let found = || -> Result<NewItem<'a>> {
-            if !(1..=ITEM_MOST).contains(&item) {
-                bail!("{label}: item numbers go from 1 to {ITEM_MOST} (local_itemdatano_converttable)");
+            let highest = self.limits.item_numbers;
+            if !(1..=highest).contains(&item) {
+                bail!("{label}: item numbers go from 1 to {highest} (local_itemdatano_converttable)");
             }
             let Some(like_number) = object.get("like").and_then(Value::as_i64) else {
                 bail!("{label}: the game has no item {item}; a new item names the item it is like: {{\"item\": {item}, \"like\": 1, \"name\": ...}}");
@@ -1098,6 +1134,7 @@ impl Items {
     ) -> Result<i64> {
         let label = &new.label;
         let FamilyTable { file, count, last, most, by_item, .. } = FAMILY_TABLES[table];
+        let most = most.of(&self.limits);
         let list = counts[table].0 + counts[table].1 as i64;
         counts[table].1 += 1;
         if list as usize >= most {
@@ -1175,7 +1212,7 @@ impl Items {
     /// refused when a script outgrows the buffer the engine reads it into, or the names of a
     /// language the game plays outgrow the buffer they are copied into.
     pub fn apply(&self, edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
-        let written = cfg_text::apply_edits(&self.scripts, edits)?;
+        let written = cfg_text::apply_edits(&self.scripts, edits, self.limits.statement_args)?;
         for ((name, data), old) in FILES.iter().chain(&NAME_FILES).zip(&written).zip(&self.scripts) {
             if data.len() > SCRIPT_BUFFER && *data != old.write() {
                 bail!("{name} would be {} bytes; the game reads it into {SCRIPT_BUFFER}", data.len());
@@ -1242,7 +1279,7 @@ mod tests {
 
     #[test]
     fn the_tables_read_as_the_engine_fills_them() {
-        let items = Items::read(&sample(), Some(NAMES_SAMPLE)).unwrap();
+        let items = Items::read(&sample(), Some(NAMES_SAMPLE), &crate::limits::RETAIL).unwrap();
         let json = items.to_json();
         let wrench = &json["items"][0];
         assert_eq!(wrench["name"], "Battle Wrench");
@@ -1264,7 +1301,7 @@ mod tests {
 
     #[test]
     fn a_change_rewrites_only_its_argument() {
-        let items = Items::read(&sample(), None).unwrap();
+        let items = Items::read(&sample(), None, &crate::limits::RETAIL).unwrap();
         let edit =
             serde_json::json!({"items": [{"item": 1, "max": 300, "weapon": {"smash": 12, "build_up": [3, 90, 0]}}]});
         let changes = items.changes(&edit, "m").unwrap();
@@ -1274,7 +1311,7 @@ mod tests {
             String::from_utf8(sample()[1].clone()).unwrap().replace(" 5 ,", " 12 ,").replace("BUILD 2,", "BUILD 3,");
         assert_eq!(files[1], wanted.as_bytes());
         assert_eq!(files[0], sample()[0]);
-        let again = Items::read(&files, None).unwrap().to_json();
+        let again = Items::read(&files, None, &crate::limits::RETAIL).unwrap().to_json();
         assert_eq!(again["items"][0]["weapon"]["smash"], 12);
         let fish = serde_json::json!({"items": [{"item": 310, "fish": {"size": 1450.5}}]});
         let files = items.apply(&items.changes(&fish, "m").unwrap()).unwrap();
@@ -1283,7 +1320,7 @@ mod tests {
 
     #[test]
     fn mods_merge_and_wrong_edits_are_refused() {
-        let items = Items::read(&sample(), Some(NAMES_SAMPLE)).unwrap();
+        let items = Items::read(&sample(), Some(NAMES_SAMPLE), &crate::limits::RETAIL).unwrap();
         let mut changes =
             items.changes(&serde_json::json!({"items": [{"item": 1, "weapon": {"attack": 9}}]}), "a").unwrap();
         changes.extend(
@@ -1318,7 +1355,7 @@ mod tests {
     #[test]
     fn new_items_copy_the_item_they_are_like() {
         use serde_json::json;
-        let items = Items::read(&sample_named(), None).unwrap();
+        let items = Items::read(&sample_named(), None, &crate::limits::RETAIL).unwrap();
         assert_eq!(items.to_json()["items"][0]["name"], "Battle Wrench");
         let edit = json!({"items": [{"item": 429, "like": 1, "name": "Mega Wrench", "description": "Hits hard.",
             "weapon": {"attack": 200, "attack_max": 999}, "names": {"fr": "Clé géante"}}]});
@@ -1331,7 +1368,7 @@ mod tests {
         assert!(text(1).ends_with(block), "{}", text(1));
         assert!(text(8).contains("MES_SYS 175,\"Flame Crystal\";\r\nMES_SYS 429,\"Mega Wrench\";"));
         assert!(text(9).contains("MES_SYS 429,\"Cl[UNI00e9] g[UNI00e9]ante\";"));
-        let again = Items::read(&files, None).unwrap().to_json();
+        let again = Items::read(&files, None, &crate::limits::RETAIL).unwrap().to_json();
         let new = again["items"].as_array().unwrap().iter().find(|item| item["item"] == 429).unwrap().clone();
         assert_eq!(
             (&new["name"], &new["list"], &new["weapon"]["attack"]),
@@ -1377,7 +1414,7 @@ mod tests {
         let mut files = sample_named();
         // the wrench's message is 7, not its item number
         files[0] = String::from_utf8(files[0].clone()).unwrap().replace("0,0,1,\"wm001\"", "0,0,7,\"wm001\"").into();
-        let items = Items::read(&files, None).unwrap();
+        let items = Items::read(&files, None, &crate::limits::RETAIL).unwrap();
         let edit = serde_json::json!({"items": [{"item": 429, "like": 1, "name": "Mega Wrench"}]});
         let (_, texts) = items.changes_all(&[("m".into(), edit)]).unwrap();
         let copies: Vec<(u16, u16)> =
@@ -1390,7 +1427,7 @@ mod tests {
         // 16777217 and 16777216 are one f32: the item table compared them so, and dropped the edit
         let mut files = sample();
         files[0] = String::from_utf8(files[0].clone()).unwrap().replace("\"wm001\",3;", "\"wm001\",16777216;").into();
-        let items = Items::read(&files, None).unwrap();
+        let items = Items::read(&files, None, &crate::limits::RETAIL).unwrap();
         let edits = items.changes(&serde_json::json!({"items": [{"item": 1, "attribute": 16777217}]}), "m").unwrap();
         assert_eq!(edits.len(), 1);
         assert!(String::from_utf8_lossy(&items.apply(&edits).unwrap()[0]).contains("\"wm001\",16777217;"));
@@ -1400,7 +1437,7 @@ mod tests {
     fn renaming_an_item_whose_name_line_has_no_name_is_refused_not_a_panic() {
         let mut files = sample_named();
         files[FILES.len() + 1] = b"MES_SYS 1;\r\n".to_vec();
-        let items = Items::read(&files, None).unwrap();
+        let items = Items::read(&files, None, &crate::limits::RETAIL).unwrap();
         let edits = items.changes(&serde_json::json!({"items": [{"item": 1, "name": "Big Wrench"}]}), "m").unwrap();
         let error = items.apply(&edits).unwrap_err().to_string();
         assert!(error.contains("item 1 name (en)") && error.contains("no argument 1"), "{error}");
@@ -1430,7 +1467,7 @@ mod tests {
             let files: Vec<Vec<u8>> =
                 FILES.iter().map(|file| std::fs::read(folder.join(file)).unwrap_or_default()).collect();
             let names = std::fs::read(folder.join(NAMES)).ok();
-            let items = Items::read(&files, names.as_deref()).unwrap();
+            let items = Items::read(&files, names.as_deref(), &crate::limits::RETAIL).unwrap();
             assert_eq!(items.write(), files, "{}", folder.display());
             for record in &items.records {
                 for field in &record.fields {
@@ -1469,7 +1506,7 @@ mod tests {
         let folder = std::path::Path::new(&corpus).join(FOLDER);
         let files: Vec<Vec<u8>> =
             FILES.iter().chain(&NAME_FILES).map(|file| std::fs::read(folder.join(file)).unwrap()).collect();
-        let items = Items::read(&files, None).unwrap();
+        let items = Items::read(&files, None, &crate::limits::RETAIL).unwrap();
         assert_eq!(items.write(), files);
         assert_eq!(items.apply(&[]).unwrap(), files);
         let json = items.to_json();
@@ -1498,13 +1535,55 @@ mod tests {
         }
         let (edits, texts) = items.changes_all(&[("m".into(), serde_json::json!({ "items": records }))]).unwrap();
         let written = items.apply(&edits).unwrap();
-        let again = Items::read(&written, None).unwrap();
-        assert_eq!(again.len(), COMMON_MOST);
+        let again = Items::read(&written, None, &crate::limits::RETAIL).unwrap();
+        assert_eq!(again.len(), crate::limits::RETAIL.common_items);
         assert_eq!(again.to_json()["items"][431]["name"], "New 8");
         assert_eq!(count(&again.scripts[1], "WEPNUM"), Some(116));
         assert_eq!(texts.iter().filter(|text| text.file == "system").count(), 9 * 7);
         records.push(serde_json::json!({"item": 500, "like": like(Clothing), "name": "One too many"}));
         let error = items.changes_all(&[("m".into(), serde_json::json!({ "items": records }))]).unwrap_err();
         assert!(error.to_string().contains("432"), "{error}");
+    }
+
+    #[test]
+    fn item_numbers_and_family_records_are_bounded_by_the_profile() {
+        use serde_json::json;
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let items = Items::read(&sample_named(), None, limits).unwrap();
+            let new = |number: i64| json!({"items": [{"item": number, "like": 1, "name": "Far Wrench"}]});
+            items
+                .changes_all(&[("m".into(), new(limits.item_numbers))])
+                .unwrap_or_else(|error| panic!("{profile}: {error}"));
+            let error = items.changes_all(&[("m".into(), new(limits.item_numbers + 1))]).unwrap_err().to_string();
+            assert!(error.contains(&format!("1 to {}", limits.item_numbers)), "{profile}: {error}");
+            let json = items.to_json();
+            let records = json["items"].as_array().unwrap();
+            let taken: Vec<i64> = records.iter().map(|record| record["item"].as_i64().unwrap()).collect();
+            let of_table = |table: usize| {
+                records.iter().filter(move |record| {
+                    FAMILY_TABLES[table].families.contains(&family(record["type"].as_i64().unwrap() as i32))
+                })
+            };
+            for (table, most) in [(0, limits.weapon_records), (2, limits.item_records)] {
+                let like = of_table(table).next().unwrap()["item"].as_i64().unwrap();
+                let fill = |count: usize| {
+                    let free = (1..=limits.item_numbers).filter(|number| !taken.contains(number));
+                    let list: Vec<_> = free
+                        .take(count)
+                        .map(|number| json!({"item": number, "like": like, "name": format!("New {number}"), "attribute": 1}))
+                        .collect();
+                    assert_eq!(list.len(), count);
+                    json!({"items": list})
+                };
+                let room = most - of_table(table).count();
+                let tag = FAMILY_TABLES[table].count;
+                items
+                    .changes_all(&[("m".into(), fill(room))])
+                    .unwrap_or_else(|error| panic!("{profile} {tag}: {error}"));
+                let error = items.changes_all(&[("m".into(), fill(room + 1))]).unwrap_err().to_string();
+                assert!(error.contains(&format!("the game holds {most} ({tag})")), "{profile}: {error}");
+            }
+        }
     }
 }

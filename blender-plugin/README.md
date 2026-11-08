@@ -50,6 +50,7 @@ Preferences:
 | exported maps | `extracted/maps` in the repository |
 | mod folder, source tree, retail disc, output disc image | for Export and Build; the source tree defaults to `extracted/scripts`; the retail disc is the ISO or an untouched extracted disc folder |
 | debug port, override folder, API port | for Play in Game: `build/port/dc2-debug`, `overrides` beside it, 7777 (the port's `DC2TK_DEBUG_PORT`) |
+| limits | `retail`: the capacity limits Validate Map and the Budgets panel check against, and `dc2tk build` is passed (`--limits`); `port` is the raised native engine's, which a map over the retail limits runs only on ([docs/guide/limits.md](../docs/guide/limits.md); the numbers are `dc2tk_maps/limits.json`, which `dc2tk limits --json` writes) |
 
 ## Use
 
@@ -298,7 +299,7 @@ by cell, as copies beside the map (never exported); room -1 clears it.
 **Check.** Validate Map lists errors and warnings (select an entry's object
 with its button; the whole list is in the text "dc2tk validation"): names over
 31 bytes (cp932), event targets over 15, repeated placement names, more than
-320 placements (400 for dungeons), unknown point kinds, collision faces that
+320 placements (400 for dungeons; the limits preference's profile), unknown point kinds, collision faces that
 are not triangles or whose material is not a `col_` name, more than 8
 `TIME_LIGHT_NUM`, nodes without `extras.c2`, animations naming a placement,
 piece or model node the scene lacks, picture names over 31 Latin-1

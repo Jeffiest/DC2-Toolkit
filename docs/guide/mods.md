@@ -394,7 +394,7 @@ The port's options win over these, and so do the choices made in its launcher.
 
 **The smooth motion mod.** The game updates 25 times a second in towns and dungeons (50 at the title), and everything in it moves one step per update. `port/smooth/` is a mod, `dc2tk.smooth`, that draws frames in between for 60, 120 or 144 Hz displays: the port records each frame it draws and, while the game waits for its next update, draws the recording again with the camera, every model and every bone blended from the update before to the last. Particles, 3D sprites, water and the HUD keep the game's own rate, and the picture is one update (40 ms) behind. Its settings are `enabled` and `refresh` (`display`, the screen's rate, or 60 to 240). The port's debug build shows the frames it draws between updates as `replays` in `stats`, and `between alpha=0.5` returns one as a picture.
 
-**Port code.** `"port": {"sources", "api"}` adds C or C++ files to the port. `"sources"` picks them with patterns and `"api"` is the range of `port_mod.h` they are written for (`"^1.2"`). Each file includes `port_mod.h` and registers a table of hooks:
+**Port code.** `"port": {"sources", "api"}` adds C or C++ files to the port. `"sources"` picks them with patterns and `"api"` is the range of `port_mod.h` they are written for (`"^2.0"`; the header's `PORT_MOD_API`, whose major number changes when a hook is removed or changed). Each file includes `port_mod.h` and registers a table of hooks:
 
 ```c
 #include "port_mod.h"
@@ -506,7 +506,9 @@ dc2tk build extracted/scripts dc2.iso -o modded.iso --mod local.my-mod
 Both commands build the engine in Docker or Podman. The disc supplies retail's libraries;
 `mod check` therefore needs `--disc` for engine mods. A build with `--dry-run` compiles the
 engine too. Mods that replace one function clash and the error names both mods and the
-function. `--executable` cannot be combined with engine files.
+function. `--executable` cannot be combined with engine files. `--limits port` on either command
+checks the content against the raised native engine's [capacity limits](limits.md) instead of
+the PS2 game's (`retail`, the default); content that needs them runs only on that engine.
 
 Each mod set gets a copy under `build/engine/mods-<hash>/`, with its engine inputs included in
 the hash. Builds edit that copy and leave the engine submodule untouched. The link map is

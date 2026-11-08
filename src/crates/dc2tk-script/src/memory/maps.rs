@@ -30,7 +30,13 @@ impl MapKind {
         }
     }
 
-    pub(super) fn placements(self) -> usize {
+    /// The placements a map of this kind may have in the profile.
+    pub fn placements(self, limits: &Limits) -> usize {
+        limits.placements(self == MapKind::Dungeon)
+    }
+
+    /// The entries of the retail placement table, which the stack estimate counts.
+    pub(super) fn placement_table(self) -> usize {
         match self {
             MapKind::Dungeon => DUNGEON_PLACEMENTS,
             _ => TOWN_PLACEMENTS,
@@ -131,7 +137,7 @@ pub fn map_load(disc: &dyn Disc, entry: &MapEntry) -> Option<MapLoad> {
     let mut stack = Stack::default();
     // the CEditMap (LoadMapFromMemory step 0) and the placement table (SetPlacePartsBuff)
     stack.alloc(0x111);
-    let table = entry.kind.placements() as u64;
+    let table = entry.kind.placement_table() as u64;
     stack.alloc(blocks(table * 0x310) + 2);
     stack.alloc(blocks(table * 4) + 2);
     let main = sources.len() - 1;

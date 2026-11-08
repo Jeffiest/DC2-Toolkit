@@ -1,4 +1,5 @@
 use super::*;
+use dc2tk_assets::limits::RETAIL;
 use dc2tk_assets::mds as mdsfile;
 use std::path::Path;
 
@@ -237,14 +238,18 @@ fn whole_files_and_scripts_are_checked() {
     ]);
     let overlay = Overlay::new(&original, &modded);
     let changed: Vec<String> = modded.keys().cloned().collect();
-    let found = check(&original, &overlay, &changed);
+    let found = check(&original, &overlay, &changed, &RETAIL);
     let errors: Vec<&Finding> = found.iter().filter(|item| item.level == Level::Error).collect();
     assert_eq!(errors.len(), 2, "{found:?}");
     assert!(errors.iter().any(|item| item.text.contains("script buffer")));
     assert!(errors.iter().any(|item| item.text.contains("read buffer")));
     assert!(found.iter().any(|item| item.level == Level::Note && item.text.starts_with("menu/a.img")));
-    // nothing changed, nothing to say
-    assert!(check(&original, &original, &[]).is_empty());
+    // nothing changed, nothing to say but the profile
+    let quiet = check(&original, &original, &[], &RETAIL);
+    assert_eq!(quiet.len(), 1, "{quiet:?}");
+    assert_eq!((quiet[0].level, quiet[0].text.as_str()), (Level::Note, "limits retail (the PS2 game's limits)"));
+    let port = check(&original, &original, &[], &dc2tk_assets::limits::PORT);
+    assert!(port[0].text.starts_with("limits port (the raised engine's limits"), "{port:?}");
 }
 
 fn bank(samples: usize) -> Vec<u8> {
@@ -270,7 +275,7 @@ fn sound_banks_are_checked_against_their_regions() {
         ("snd2/SY_000.snd".to_string(), bank(0x6_DD80)),
     ]);
     let overlay = Overlay::new(&original, &modded);
-    let found = check(&original, &overlay, &modded.keys().cloned().collect::<Vec<_>>());
+    let found = check(&original, &overlay, &modded.keys().cloned().collect::<Vec<_>>(), &RETAIL);
     let errors: Vec<&str> =
         found.iter().filter(|item| item.level == Level::Error).map(|item| item.text.as_str()).collect();
     // FG_000 with BS_051 is 0x110020 together; SY_000 outgrows its region and the IOP window
@@ -313,7 +318,7 @@ fn sound_tables_are_checked_against_their_layers_stack() {
         ("snd2/ob/OB_001.snd".to_string(), bank_of_entries(44)),
     ]);
     let overlay = Overlay::new(&original, &modded);
-    let found = check(&original, &overlay, &modded.keys().cloned().collect::<Vec<_>>());
+    let found = check(&original, &overlay, &modded.keys().cloned().collect::<Vec<_>>(), &RETAIL);
     let warned = |path: &str| {
         found.iter().any(|item| {
             item.level == Level::Warning && item.text.starts_with(path) && item.text.contains("EE memory stack")
@@ -325,7 +330,7 @@ fn sound_tables_are_checked_against_their_layers_stack() {
     // tables that did not grow say nothing
     let same = BTreeMap::from([("snd2/fg/FG_000.snd".to_string(), bank_of_entries(10))]);
     let overlay = Overlay::new(&original, &same);
-    assert!(!check(&original, &overlay, &["snd2/fg/FG_000.snd".to_string()])
+    assert!(!check(&original, &overlay, &["snd2/fg/FG_000.snd".to_string()], &RETAIL)
         .iter()
         .any(|item| item.text.contains("EE")));
 }
@@ -359,7 +364,7 @@ fn corpus_retail_fits_the_budgets() {
         if load.read > entry.kind.loading_screen() {
             wrong.push(format!("{name}: read {}", load.read));
         }
-        if load.placements > entry.kind.placements() {
+        if load.placements > entry.kind.placements(&RETAIL) {
             wrong.push(format!("{name}: {} placements", load.placements));
         }
         let limit = match entry.kind {
@@ -468,4 +473,15 @@ fn corpus_retail_fits_the_budgets() {
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+#[test]
+fn a_maps_placements_are_the_profiles_and_the_stack_estimate_keeps_the_retail_table() {
+    use dc2tk_assets::limits::PORT;
+    for limits in [&RETAIL, &PORT] {
+        assert_eq!(MapKind::Dungeon.placements(limits), limits.dungeon_placements);
+        assert_eq!(MapKind::Dungeon.placements(limits), limits.placements(true));
+    }
+    assert_eq!(MapKind::Dungeon.placement_table(), DUNGEON_PLACEMENTS);
+    assert_eq!((TOWN_PLACEMENTS, DUNGEON_PLACEMENTS), (RETAIL.town_placements, RETAIL.dungeon_placements));
 }

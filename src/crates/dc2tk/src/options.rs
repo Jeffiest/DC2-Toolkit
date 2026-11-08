@@ -1,6 +1,7 @@
 //! The options commands share: the native tables (NativesArg), the definition sets, SDK headers
-//! and native tables most script commands take (Common), and the mods folder (ModsDir); and what
-//! compiling needs, loaded once from Common (Tools).
+//! and native tables most script commands take (Common), the mods folder (ModsDir) and the
+//! capacity limits content is checked against (LimitsArg); and what compiling needs, loaded once
+//! from Common (Tools).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,7 @@ use anyhow::Result;
 use clap::Args;
 use indexmap::IndexMap;
 
+use dc2tk_assets::limits::{Limits, Profile};
 use dc2tk_script::compile::Toolchain;
 use dc2tk_script::definitions::{self, Definitions};
 use dc2tk_script::natives::{self, Table};
@@ -109,6 +111,25 @@ impl Tools {
     }
 }
 
+/// The capacity limits content is checked against (docs/guide/limits.md).
+#[derive(Args, Clone, Debug, Default)]
+pub struct LimitsArg {
+    /// The limits the content is checked against: retail (the PS2 game's) or port (the raised
+    /// engine's; content that needs them runs only on that engine). dc2tk limits lists both.
+    #[arg(long, value_name = "PROFILE", default_value = "retail")]
+    pub limits: Profile,
+}
+
+impl LimitsArg {
+    pub fn of(profile: Profile) -> LimitsArg {
+        LimitsArg { limits: profile }
+    }
+
+    pub fn limits(&self) -> &'static Limits {
+        self.limits.limits()
+    }
+}
+
 /// The folder that holds the mods.
 #[derive(Args, Clone)]
 pub struct ModsDir {
@@ -125,5 +146,34 @@ impl ModsDir {
 
     pub fn path(&self) -> &Path {
         &self.mods
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser, Debug)]
+    struct Line {
+        #[command(flatten)]
+        limits: LimitsArg,
+    }
+
+    #[test]
+    fn the_limits_option_defaults_to_retail_and_names_the_profiles_when_wrong() {
+        assert_eq!(Line::try_parse_from(["x"]).unwrap().limits.limits, Profile::Retail);
+        assert_eq!(
+            Line::try_parse_from(["x", "--limits", "port"]).unwrap().limits.limits(),
+            &dc2tk_assets::limits::PORT
+        );
+        assert_eq!(
+            Line::try_parse_from(["x", "--limits", "retail"]).unwrap().limits.limits(),
+            &dc2tk_assets::limits::RETAIL
+        );
+        let error = Line::try_parse_from(["x", "--limits", "ps2"]).unwrap_err().to_string();
+        assert!(error.contains("ps2") && error.contains("retail and port"), "{error}");
+        assert_eq!(LimitsArg::of(Profile::Port).limits.name(), "port");
+        assert_eq!(LimitsArg::default().limits, Profile::Retail);
     }
 }

@@ -12,8 +12,8 @@ import bpy
 from mathutils import Matrix, Vector
 
 from dc2tk_maps import (
-    animate, budgets, c2data, collision, export_mod, gizmos, library, lighting, look, outliner, overlay, picking, play,
-    prefs,
+    animate, budgets, c2data, collision, export_mod, gizmos, library, lighting, limits, look, outliner, overlay, picking,
+    play, prefs,
     schema, scripts, testing, tools, validate, views, wizards,
 )
 
@@ -228,6 +228,16 @@ def check_scripts(context, check, root):
 def check_budgets(check, root):
     slots, new = budgets.placement_slots(root)
     check(new >= 1 and slots >= 3, "placements counted with the new ones: %d, %d" % (slots, new))
+    check(limits.value("town_placements", "retail") == 320 and limits.placements("d01", "retail") == 400,
+          "the retail limits are the game's")
+    settings = prefs.get()
+    check(settings.limits_profile == "retail" and limits.profile() == "retail", "the limits profile defaults to retail")
+    settings.limits_profile = "port"
+    check(limits.profile() == "port", "the preference chooses the profile")
+    check(limits.placements("t01", "port") >= limits.placements("t01", "retail"), "port never lowers a limit")
+    over = [m for _l, _n, m in validate.check(root) if "placements (" in m]
+    check(not over, "the test map is within the placement limit: %s" % over)
+    settings.limits_profile = "retail"
     check(any(model.endswith("-m.mds") for model in budgets.new_models(root)), "new models counted: %s" % budgets.new_models(root))
     drawn, collision_triangles = budgets.triangles(root)
     check(drawn > 0 and collision_triangles > 0, "triangles counted")

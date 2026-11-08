@@ -69,7 +69,7 @@ pub fn read(files: &[Vec<u8>], elf: &[u8]) -> Result<Table> {
     table.adding(Adding {
         counts: counts.unwrap_or_default(),
         most: SPOTS_MOST,
-        why: "the spots FISH_MAP_NUM allocates from the scene's stack, a size not fixed",
+        why: "the spots FISH_MAP_NUM allocates from the scene's stack, a size not fixed".into(),
         place: Some("spot"),
         ..Adding::default()
     });

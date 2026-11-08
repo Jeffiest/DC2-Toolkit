@@ -4,6 +4,10 @@
 #include "input.h"
 #include "port_graphics.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 uint64_t port_fields;
 
 enum { NO_PRESSURE = -1, ALL_BUTTONS = UINT16_MAX, REPORT_FILL = 73, ENGINE_DEAD_ZONE = 50, ENGINE_SPAN = 78, ANGLES = 64 };

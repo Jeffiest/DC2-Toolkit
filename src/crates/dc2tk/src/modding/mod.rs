@@ -22,7 +22,7 @@ use dc2tk_script::{
     capture, datatables, definitions, discfiles, editor, index, manifest, mods, package, paths, replace, sdk, slim,
 };
 
-use crate::options::{Common, ModsDir};
+use crate::options::{Common, LimitsArg, ModsDir};
 use crate::{asset_tree, files};
 
 pub use build::{run_build, BuildArgs};
@@ -103,6 +103,8 @@ pub enum ModCommand {
         output: PathBuf,
         #[command(flatten)]
         mods: ModsDir,
+        #[command(flatten)]
+        limits: LimitsArg,
         #[command(flatten)]
         common: Common,
     },
@@ -239,6 +241,8 @@ pub enum ModCommand {
         #[arg(long, requires = "disc")]
         native: bool,
         #[command(flatten)]
+        limits: LimitsArg,
+        #[command(flatten)]
         common: Common,
     },
     /// Make a mod of everything changed in the extracted folder since extracting: edited and added
@@ -269,8 +273,8 @@ pub fn run_mod(command: &ModCommand) -> Result<ExitCode> {
         ModCommand::Save { source, name, id, mods, common } => run_mod_save(source, name, id.as_deref(), mods, common),
         ModCommand::Slim { source, name, mods, common } => run_mod_slim(source, name, mods, common),
         ModCommand::Pack { name, output, disc, mods } => run_mod_pack(name, output, disc.as_deref(), mods),
-        ModCommand::Build { source, disc, name, output, mods, common } => {
-            pak::run_mod_build(source, disc, name, output, mods, common)
+        ModCommand::Build { source, disc, name, output, mods, limits, common } => {
+            pak::run_mod_build(source, disc, name, output, mods, common, limits.limits)
         }
         ModCommand::Upgrade { name, id, mods } => upgrade::run_mod_upgrade(name, id.as_deref(), mods),
         ModCommand::Install { file, mods } => run_mod_install(file, mods),
@@ -293,8 +297,8 @@ pub fn run_mod(command: &ModCommand) -> Result<ExitCode> {
         ModCommand::Asset { iso, name, paths, form, mods, defs } => {
             run_mod_asset(iso, name, paths, form.as_deref(), mods, defs)
         }
-        ModCommand::Check { source, names, mods, disc, native, common } => {
-            check::run_mod_check(source, names, mods, disc.as_deref(), *native, common)
+        ModCommand::Check { source, names, mods, disc, native, limits, common } => {
+            check::run_mod_check(source, names, mods, disc.as_deref(), *native, common, limits.limits())
         }
         ModCommand::Make { iso, name, extracted, mods, common } => run_mod_make(iso, name, extracted, mods, common),
         ModCommand::Watch(args) => watch::run_watch(args),

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use serde_json::{json, Map, Value};
 
 use crate::from_gltf;
+use crate::limits::Limits;
 use crate::map_export::{find_model, options_for, ModelPack, PackType};
 use crate::map_scene::{self, SceneNode};
 use crate::map_transform::Trs;
@@ -518,6 +519,7 @@ pub fn import_map(
     packs: &[ModelPack],
     textures: &TextureSearch,
     slots: map_edit::Slots,
+    limits: &Limits,
 ) -> Result<Imported> {
     let doc: Value = serde_json::from_slice(gltf).context("the scene's glTF")?;
     let original_map = mapfile::parse(original)?;
@@ -545,7 +547,7 @@ pub fn import_map(
 
     let mut out = Imported::default();
     let edit = map_scene::read_scene(&tree, &original_map)?;
-    let rebuilt = map_edit::rebuild_with(&original_map, &edit, slots)?;
+    let rebuilt = map_edit::rebuild_with(&original_map, &edit, slots, limits)?;
     let text = mapfile::write(&rebuilt)?;
     if text != original {
         out.map = Some(text);
@@ -781,7 +783,9 @@ mod tests {
             assert!(display_nodes > 0, "{name}: the sky is in the scene");
             let gltf = files[&format!("{stem}.gltf")].clone();
             let read = |path: &str| files.get(path).cloned().ok_or_else(|| Error::invalid(format!("no {path}")));
-            let imported = import_map(&gltf, &read, &map_bytes, &packs, &search, map_edit::Slots::Keep).unwrap();
+            let imported =
+                import_map(&gltf, &read, &map_bytes, &packs, &search, map_edit::Slots::Keep, &crate::limits::RETAIL)
+                    .unwrap();
             assert!(imported.map.is_none(), "{name}: the .map changed");
             let changed: Vec<&String> = imported.models.iter().map(|(model, _)| model).collect();
             assert!(changed.is_empty(), "{name}: models rebuilt: {changed:?}");
@@ -820,7 +824,9 @@ mod tests {
             let mut moved: Value = gltf_doc.clone();
             moved["nodes"][model_node(shared[1])]["translation"] = json!([5.0, 0.0, 0.0]);
             let text = serde_json::to_vec(&moved).unwrap();
-            let imported = import_map(&text, &read, &map_bytes, &packs, &search, map_edit::Slots::Keep).unwrap();
+            let imported =
+                import_map(&text, &read, &map_bytes, &packs, &search, map_edit::Slots::Keep, &crate::limits::RETAIL)
+                    .unwrap();
             let changed: Vec<String> = imported.models.iter().map(|(found, _)| found.to_lowercase()).collect();
             assert_eq!(
                 changed,
@@ -829,7 +835,9 @@ mod tests {
             );
             moved["nodes"][model_node(shared[0])]["translation"] = json!([0.0, 0.0, 7.0]);
             let text = serde_json::to_vec(&moved).unwrap();
-            let imported = import_map(&text, &read, &map_bytes, &packs, &search, map_edit::Slots::Keep).unwrap();
+            let imported =
+                import_map(&text, &read, &map_bytes, &packs, &search, map_edit::Slots::Keep, &crate::limits::RETAIL)
+                    .unwrap();
             assert_eq!(imported.models.len(), 1, "{name}: one model, however many pieces show it");
             assert!(
                 imported.notes.iter().any(|note| note.contains("edited differently")),

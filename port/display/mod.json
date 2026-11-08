@@ -7,7 +7,7 @@
   "targets": ["native"],
   "port": {
     "sources": ["*.c"],
-    "api": "^1.1"
+    "api": "^2.0"
   },
   "settings": {
     "aspect": {

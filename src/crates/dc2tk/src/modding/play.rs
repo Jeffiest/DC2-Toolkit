@@ -17,6 +17,7 @@ pub fn run_native(
     build_only: bool,
     mods: &ModsDir,
     common: &Common,
+    profile: dc2tk_assets::limits::Profile,
 ) -> Result<ExitCode> {
     let root = crate::files::root();
     let mut binary = root.join("build").join("port").join("dc2");
@@ -25,10 +26,10 @@ pub fn run_native(
     let folder = root.join("build").join("sets").join(name);
     let overrides = folder.join("overrides");
     if let Some(set) = set {
-        let (built, executable) = build::built_game_files(source, disc, &[], Some(set), mods, common)?;
+        let (built, executable) = build::built_game_files(source, disc, &[], Some(set), mods, common, profile)?;
         if executable {
             binary = folder.join("dc2");
-            build::build_native_binary(source, disc, set, mods, common, &binary)?;
+            build::build_native_binary(source, disc, set, mods, common, profile, &binary)?;
         }
         let (written, removed) = watch::write_overlay(&overrides, &built)?;
         println!("{} game files in {} ({written} written, {removed} removed)", built.len(), shown(&overrides));

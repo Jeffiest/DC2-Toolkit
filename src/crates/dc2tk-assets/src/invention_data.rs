@@ -88,7 +88,13 @@ pub fn read(files: &[Vec<u8>], elf: &[u8]) -> Result<Table> {
     let counts = (0..table.scripts.len())
         .filter_map(|file| data_table::tagged(&table.scripts[file], "DATATABLESET").last().map(|&at| (file, at, 0)))
         .collect();
-    table.adding(Adding { counts, most: RECIPES_MOST, why: RECIPES_WHY, place: Some("recipe"), ..Adding::default() });
+    table.adding(Adding {
+        counts,
+        most: RECIPES_MOST,
+        why: RECIPES_WHY.into(),
+        place: Some("recipe"),
+        ..Adding::default()
+    });
     let start = table_offset(elf, SCOOP_TABLE, SCOOPS * SCOOP_RECORD, "scoop table")?;
     let mut scoops = Vec::new();
     for number in 0..SCOOPS {

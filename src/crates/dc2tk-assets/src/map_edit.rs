@@ -16,13 +16,12 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::limits::Limits;
 use crate::mapfile::{FixCamera, MapFile, Num, Piece, Placement, Point, Settings, Template};
 use crate::{Error, Result};
 
 /// The longest name the engine keeps (31 characters and a terminator).
 pub const MAX_NAME: usize = 31;
-/// Placements a map can have (400 in dungeons; the largest map on the disc has 245).
-pub const MAX_PLACEMENTS: usize = 320;
 
 /// One placement as the scene has it: the placement and its own copy of its template's contents.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -269,8 +268,8 @@ impl Rebuild<'_> {
 }
 
 /// The rebuilt map's placements: each new name given once (scripts find placements by name), and
-/// no more than a map has room for.
-fn check_placements(out: &MapFile, original: &MapFile) -> Result<()> {
+/// no more than a map has room for in the profile (the largest map on the disc has 245).
+fn check_placements(out: &MapFile, original: &MapFile, limits: &Limits) -> Result<()> {
     let mut names = HashSet::new();
     for placement in &out.placements {
         if !names.insert(placement.name.to_lowercase())
@@ -279,10 +278,13 @@ fn check_placements(out: &MapFile, original: &MapFile) -> Result<()> {
             return Err(Error::invalid(format!("two placements are named {}; names find them", placement.name)));
         }
     }
-    if out.placements.len() > MAX_PLACEMENTS {
+    if out.placements.len() > limits.town_placements {
         return Err(Error::invalid(format!(
-            "{} placements; a map has room for {MAX_PLACEMENTS} (400 in dungeons)",
-            out.placements.len()
+            "{} placements; a map has room for {} ({} in dungeons; the {} limits)",
+            out.placements.len(),
+            limits.town_placements,
+            limits.dungeon_placements,
+            limits.profile
         )));
     }
     Ok(())
@@ -290,13 +292,13 @@ fn check_placements(out: &MapFile, original: &MapFile) -> Result<()> {
 
 /// The map the scene describes, built on the original: templates folded back from the
 /// placements' copies, placements kept in their slots, the map's own points, settings and cameras
-/// from the scene.
-pub fn rebuild(original: &MapFile, scene: &SceneEdit) -> Result<MapFile> {
-    rebuild_with(original, scene, Slots::Keep)
+/// from the scene, within `limits`.
+pub fn rebuild(original: &MapFile, scene: &SceneEdit, limits: &Limits) -> Result<MapFile> {
+    rebuild_with(original, scene, Slots::Keep, limits)
 }
 
 /// `rebuild`, with what becomes of deleted placements' slots.
-pub fn rebuild_with(original: &MapFile, scene: &SceneEdit, slots: Slots) -> Result<MapFile> {
+pub fn rebuild_with(original: &MapFile, scene: &SceneEdit, slots: Slots, limits: &Limits) -> Result<MapFile> {
     check_names(scene)?;
     let mut out = original.clone();
     out.settings = scene.settings.clone();
@@ -310,7 +312,7 @@ pub fn rebuild_with(original: &MapFile, scene: &SceneEdit, slots: Slots) -> Resu
         rebuild.fold(&name, &list, first.get(name.as_str()).copied())?;
     }
     rebuild.place()?;
-    check_placements(&rebuild.out, original)?;
+    check_placements(&rebuild.out, original, limits)?;
     Ok(rebuild.out)
 }
 
@@ -359,7 +361,7 @@ mod tests {
     #[test]
     fn an_unedited_scene_rebuilds_the_same_map() {
         let map = sample();
-        assert_eq!(rebuild(&map, &scene_of(&map)).unwrap(), map);
+        assert_eq!(rebuild(&map, &scene_of(&map), &crate::limits::RETAIL).unwrap(), map);
     }
 
     #[test]
@@ -369,7 +371,7 @@ mod tests {
         for edit in &mut scene.placements {
             edit.pieces[0].pos[1] = Num::from(5.5f32);
         }
-        let out = rebuild(&map, &scene).unwrap();
+        let out = rebuild(&map, &scene, &crate::limits::RETAIL).unwrap();
         assert_eq!(out.templates.len(), 1);
         assert_eq!(out.templates[0].pieces[0].pos[1], Num::from(5.5f32));
     }
@@ -379,7 +381,7 @@ mod tests {
         let map = sample();
         let mut scene = scene_of(&map);
         scene.placements[1].pieces[0].rot[1] = Num::from(std::f32::consts::FRAC_PI_2);
-        let out = rebuild(&map, &scene).unwrap();
+        let out = rebuild(&map, &scene, &crate::limits::RETAIL).unwrap();
         assert_eq!(out.templates.len(), 2);
         assert_eq!(out.templates[0], map.templates[0]);
         assert_eq!(out.templates[1].name, "door_2");
@@ -399,11 +401,11 @@ mod tests {
         new.placement.name = "door_c".into();
         scene.placements.remove(0);
         scene.placements.push(new);
-        let out = rebuild(&map, &scene).unwrap();
+        let out = rebuild(&map, &scene, &crate::limits::RETAIL).unwrap();
         let shown: Vec<(&str, i32)> = out.placements.iter().map(|p| (p.name.as_str(), p.show.int())).collect();
         assert_eq!(shown, [("door_a", 0), ("door_b", 1), ("door_c", 1)]);
         // a new map's deleted placements are left out
-        let out = rebuild_with(&map, &scene, Slots::Compact).unwrap();
+        let out = rebuild_with(&map, &scene, Slots::Compact, &crate::limits::RETAIL).unwrap();
         let shown: Vec<(&str, i32)> = out.placements.iter().map(|p| (p.name.as_str(), p.show.int())).collect();
         assert_eq!(shown, [("door_b", 1), ("door_c", 1)]);
     }
@@ -421,7 +423,7 @@ mod tests {
             preview: true,
             move_flag: Some([1.into(), 0.into(), 1.into(), 0.into()]),
         });
-        let out = rebuild(&map, &scene).unwrap();
+        let out = rebuild(&map, &scene, &crate::limits::RETAIL).unwrap();
         assert!(out.placements.is_empty());
         assert_eq!(out.templates[0].move_flag, Some([1.into(), 0.into(), 1.into(), 0.into()]));
     }
@@ -434,7 +436,7 @@ mod tests {
         assert!(!paths.is_empty());
         for path in &paths {
             let map = mapfile::parse(&std::fs::read(path).unwrap()).unwrap();
-            assert_eq!(rebuild(&map, &scene_of(&map)).unwrap(), map, "{}", path.display());
+            assert_eq!(rebuild(&map, &scene_of(&map), &crate::limits::RETAIL).unwrap(), map, "{}", path.display());
         }
         println!("{} maps rebuild from their scenes", paths.len());
     }
@@ -444,9 +446,37 @@ mod tests {
         let map = sample();
         let mut scene = scene_of(&map);
         scene.placements[0].placement.name = "x".repeat(32);
-        assert!(rebuild(&map, &scene).is_err());
+        assert!(rebuild(&map, &scene, &crate::limits::RETAIL).is_err());
         let mut scene = scene_of(&map);
         scene.placements[1].slot = Some(0);
-        assert!(rebuild(&map, &scene).is_err());
+        assert!(rebuild(&map, &scene, &crate::limits::RETAIL).is_err());
+    }
+
+    #[test]
+    fn placements_are_bounded_by_the_profile_and_the_error_names_it() {
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let map = sample();
+            let mut scene = scene_of(&map);
+            let like = scene.placements[0].clone();
+            let another = |scene: &mut SceneEdit, name: String| {
+                let mut new = like.clone();
+                new.slot = None;
+                new.placement.name = name;
+                scene.placements.push(new);
+            };
+            while scene.placements.len() < limits.town_placements {
+                let name = format!("door_{}", scene.placements.len());
+                another(&mut scene, name);
+            }
+            let out = rebuild(&map, &scene, limits).unwrap();
+            assert_eq!(out.placements.len(), limits.town_placements, "{profile}");
+            another(&mut scene, "door_more".into());
+            let error = rebuild(&map, &scene, limits).unwrap_err().to_string();
+            assert!(error.contains(&format!("{} placements", limits.town_placements + 1)), "{profile}: {error}");
+            assert!(error.contains(&format!("room for {}", limits.town_placements)), "{profile}: {error}");
+            assert!(error.contains(&format!("{} in dungeons", limits.dungeon_placements)), "{profile}: {error}");
+            assert!(error.contains(&format!("the {profile} limits")), "{profile}: {error}");
+        }
     }
 }

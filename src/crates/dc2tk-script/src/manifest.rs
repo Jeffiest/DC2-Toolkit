@@ -16,7 +16,7 @@ pub const FORMAT: u32 = 2;
 pub const GAME: &str = "dc2-pal";
 pub const FIRST_VERSION: &str = "0.1.0";
 pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const PORT_API: &str = "1.2.0";
+pub const PORT_API: &str = "2.0.0";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -588,6 +588,11 @@ mod tests {
         let header = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../port/include/port_mod.h");
         let text = std::fs::read_to_string(header).unwrap();
         assert!(text.contains(&format!("#define PORT_MOD_API \"{PORT_API}\"")), "port_mod.h and PORT_API differ");
+        let port = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../port");
+        for name in ["debug", "display", "smooth"] {
+            let manifest = read(&port.join(name)).unwrap();
+            assert!(!manifest.port.api.is_empty(), "port/{name}/mod.json declares the api range it is written for");
+        }
     }
 
     fn fresh_folder() -> PathBuf {
@@ -646,17 +651,20 @@ mod tests {
         assert!(manifest(r#"{"format": 2, "id": "a.b", "version": "1.0.0", "game": "dc2-ntsc"}"#).is_err());
         assert!(manifest(r#"{"format": 2, "id": "a.b", "version": "1.0.0", "tool": ">=99.0"}"#).is_err());
         assert!(manifest(r#"{"format": 2, "id": "a.b", "version": "1.0.0", "targets": ["native"]}"#).is_ok());
-        let port = r#""port": {"sources": ["x.c"], "api": "^1.0"}"#;
+        let port = r#""port": {"sources": ["x.c"], "api": "^2.0"}"#;
         assert!(manifest(&format!(r#"{{"format": 2, "id": "a.b", "version": "1.0.0", {port}}}"#)).is_err());
         assert!(manifest(&format!(
             r#"{{"format": 2, "id": "a.b", "version": "1.0.0", "targets": ["native"], {port}}}"#
         ))
         .is_ok());
-        let later = r#""port": {"sources": ["x.c"], "api": "^2.0"}"#;
-        assert!(manifest(&format!(
-            r#"{{"format": 2, "id": "a.b", "version": "1.0.0", "targets": ["native"], {later}}}"#
-        ))
-        .is_err());
+        for other in ["^3.0", "^1.2", "~1.2.0"] {
+            let error = manifest(&format!(
+                r#"{{"format": 2, "id": "a.b", "version": "1.0.0", "targets": ["native"], "port": {{"sources": ["x.c"], "api": "{other}"}}}}"#
+            ))
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains("this port's is 2.0.0"), "{error}");
+        }
     }
 
     #[test]
@@ -688,7 +696,7 @@ mod tests {
         full.scripts.sources = vec!["*.c".into()];
         full.scripts.whole.insert("map/s/s17/s17_1.c".into(), "files/map/s/s17/s17_1.c".into());
         full.port.sources = vec!["port/*.c".into()];
-        full.port.api = "^1.0".into();
+        full.port.api = "^2.0".into();
         full.port.settings.insert("render.scale".into(), 2.into());
         full.settings.insert(
             "hard".into(),

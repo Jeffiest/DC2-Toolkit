@@ -1,6 +1,6 @@
 import bpy
 
-from . import c2data, schema
+from . import c2data, limits, schema
 
 ERROR = "ERROR"
 WARNING = "WARNING"
@@ -67,11 +67,13 @@ def check(root):
             found.append(
                 (level, objects[-1].name, "Placement name \"%s\" is used %d times" % (game, len(objects)))
             )
-    limit = schema.PLACEMENT_LIMIT_DUNGEON if name.startswith("d") else schema.PLACEMENT_LIMIT
+    profile = limits.profile()
+    limit = limits.placements(name, profile)
+    town = limits.value("town_placements", profile)
     if len(placements) > limit:
-        found.append((ERROR, root.name, "%d placements (%d at most)" % (len(placements), limit)))
-    elif len(placements) > schema.PLACEMENT_LIMIT:
-        found.append((WARNING, root.name, "%d placements: over 320, only dungeons have 400" % len(placements)))
+        found.append((ERROR, root.name, "%d placements (%d at most in the %s limits)" % (len(placements), limit, profile)))
+    elif len(placements) > town:
+        found.append((WARNING, root.name, "%d placements: over %d, only dungeons have %d" % (len(placements), town, limit)))
 
     number = c2data.map_settings(root).get("time_light_num")
     if isinstance(number, (int, float)) and number > schema.TIME_LIGHT_NUM_LIMIT:

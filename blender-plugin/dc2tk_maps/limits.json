@@ -1,0 +1,127 @@
+{
+  "profiles": [
+    "retail",
+    "port"
+  ],
+  "limits": [
+    {
+      "name": "town_placements",
+      "constant": "MAX_PLACEMENTS (SetPlacePartsBuff)",
+      "what": "placements in a town or interior map",
+      "retail": 320,
+      "port": 320
+    },
+    {
+      "name": "dungeon_placements",
+      "constant": "MAX_PLACEMENTS (LoadDungeonMapFile)",
+      "what": "placements in a dungeon map",
+      "retail": 400,
+      "port": 400
+    },
+    {
+      "name": "floor_monsters",
+      "constant": "MONSTER_LOCATE_MAX",
+      "what": "monsters in one floor's placement list",
+      "retail": 32,
+      "port": 128
+    },
+    {
+      "name": "chest_groups",
+      "constant": "TRESURE_BOX_FLOOR_INFO::group",
+      "what": "item groups in one dungeon's chest table",
+      "retail": 64,
+      "port": 64
+    },
+    {
+      "name": "chest_group_items",
+      "constant": "TRESURE_BOX_GROUP::item",
+      "what": "items one chest group gives",
+      "retail": 96,
+      "port": 96
+    },
+    {
+      "name": "chest_floor_groups",
+      "constant": "TRESURE_BOX_FLOOR::group_id",
+      "what": "groups one floor's chests draw from",
+      "retail": 64,
+      "port": 64
+    },
+    {
+      "name": "georama_parts",
+      "constant": "GEORAMA_PARTS_LIST_MAX",
+      "what": "Georama parts a town's editor lists",
+      "retail": 384,
+      "port": 1024
+    },
+    {
+      "name": "georama_placed",
+      "constant": "EDIT_DATA_PARTS_MAX (CEditMap::CreateTable)",
+      "what": "Georama parts placed in a town",
+      "retail": 256,
+      "port": 1024
+    },
+    {
+      "name": "townspeople",
+      "constant": "NpcBaseData",
+      "what": "townspeople records",
+      "retail": 180,
+      "port": 512
+    },
+    {
+      "name": "common_items",
+      "constant": "ITEM_COMMON_DATA_MAX",
+      "what": "item records",
+      "retail": 432,
+      "port": 1024
+    },
+    {
+      "name": "item_numbers",
+      "constant": "ITEM_NO_MAX - 1",
+      "what": "the highest item number",
+      "retail": 511,
+      "port": 2047
+    },
+    {
+      "name": "weapon_records",
+      "constant": "WEAPON_DATA_MAX (WEPNUM)",
+      "what": "weapon records",
+      "retail": 116,
+      "port": 512
+    },
+    {
+      "name": "item_records",
+      "constant": "ITEM_DATA_MAX (ITEMINIT)",
+      "what": "usable item records",
+      "retail": 162,
+      "port": 512
+    },
+    {
+      "name": "shop_goods",
+      "constant": "SHOP_ITEM_MAX",
+      "what": "goods one shop lists",
+      "retail": 64,
+      "port": 256
+    },
+    {
+      "name": "statement_args",
+      "constant": "SPI_STACK_SIZE",
+      "what": "arguments one cfg statement holds",
+      "retail": 64,
+      "port": 64
+    },
+    {
+      "name": "layout_rooms",
+      "constant": "AUTOMAP_ROOM_MAX",
+      "what": "room layouts one floor's generator holds",
+      "retail": 64,
+      "port": 160
+    },
+    {
+      "name": "layout_cells",
+      "constant": "CAutoMapParts",
+      "what": "cells of the generator's grid",
+      "retail": 900,
+      "port": 3600
+    }
+  ]
+}

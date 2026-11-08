@@ -111,7 +111,7 @@ Declare `NEW_PROGRAM(ENTER_FISH_ROOM)` in a header the mod's scripts share (here
 
 ## Limits
 
-- At most 320 placements in a map (400 in dungeons), and template names of at most 31 characters.
+- At most 320 placements in a map (400 in dungeons; the [capacity limits](limits.md)), and template names of at most 31 characters.
 - Keep the names of placements, pieces, and points that the map's scripts use.
 - `dc2tk build` checks every map memory budget (see [Memory Limits](memory.md)).
 

@@ -7,6 +7,6 @@
   "targets": ["native"],
   "port": {
     "sources": ["*.c", "*.cpp"],
-    "api": "^1.0"
+    "api": "^2.0"
   }
 }

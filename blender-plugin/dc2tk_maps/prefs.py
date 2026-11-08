@@ -2,7 +2,7 @@ import os
 import sys
 
 import bpy
-from bpy.props import IntProperty, StringProperty
+from bpy.props import EnumProperty, IntProperty, StringProperty
 
 PACKAGE = __package__
 
@@ -76,6 +76,16 @@ class Dc2tkPreferences(bpy.types.AddonPreferences):
         min=1,
         max=65535,
     )
+    limits_profile: EnumProperty(
+        name="Limits",
+        description="The capacity limits Validate Map and the Budgets panel check against, and dc2tk build is passed (--limits): "
+        "retail, the PS2 game's, or port, the raised native engine's, which content over the retail limits runs only on",
+        items=(
+            ("retail", "Retail", "The PS2 game's limits, the default: a map within them plays on the PS2 and on the port"),
+            ("port", "Port", "The raised native engine's limits: a map that needs them runs only on that engine"),
+        ),
+        default="retail",
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -94,6 +104,8 @@ class Dc2tkPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "port_binary")
         layout.prop(self, "overrides_dir")
         layout.prop(self, "debug_port")
+        layout.separator()
+        layout.prop(self, "limits_profile")
 
 
 def get(context=None):

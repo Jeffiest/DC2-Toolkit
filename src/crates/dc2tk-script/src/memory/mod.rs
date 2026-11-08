@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use dc2tk_assets::bytes::{i32_at, u16_at, u32_at};
 use dc2tk_assets::im3;
 use dc2tk_assets::info_cfg::{self, Arg};
+use dc2tk_assets::limits::Limits;
 use dc2tk_assets::mds::{self as mdsfile, F_COLOUR, PRIM_STRIP};
 use dc2tk_assets::models::{SKIN_BONES, SKIN_VERTICES};
 use dc2tk_disc::{archive, text, DiscSource};
@@ -34,9 +35,11 @@ pub const READ_BUFFER: u64 = 3_200_000;
 pub const TOWN_LOADING_SCREEN: u64 = 0x2F_9B80;
 /// The same in dungeons (InitDungeonMain, dng_main.cpp:291: BuffReadData + 0x2E630 quadwords).
 pub const DUNGEON_LOADING_SCREEN: u64 = 0x2E_6300;
-/// Placements a map may have: the placement table SetPlacePartsBuff allocates (map.cpp:224),
-/// 0x140 by default (GetLoadMapInfo and LoadSubMap, mapjump.cpp) and 400 in dungeons
-/// (LoadDungeonMapFile, dng_event.cpp). The add map's placements count too.
+/// The placement table SetPlacePartsBuff allocates from the map's stack (map.cpp:224), 0x140
+/// entries by default (GetLoadMapInfo and LoadSubMap, mapjump.cpp) and 400 in dungeons
+/// (LoadDungeonMapFile, dng_event.cpp): the retail table, which the stack estimate counts. How
+/// many placements a map may have (the add map's count too) is the profile's
+/// (`limits::Limits::placements`), the same numbers in retail.
 pub const TOWN_PLACEMENTS: usize = 0x140;
 pub const DUNGEON_PLACEMENTS: usize = 400;
 /// The script buffer a map's event script is read into: 20000 quadwords, ScriptBuffer__2 in town

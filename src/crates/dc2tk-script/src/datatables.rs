@@ -23,6 +23,7 @@ use dc2tk_assets::dungeon_layout::{self, Layouts};
 use dc2tk_assets::elf::{self, Patch};
 use dc2tk_assets::idea_data::{self, Ideas};
 use dc2tk_assets::item_data::{self, ItemText, Items};
+use dc2tk_assets::limits::{self, Limits};
 use dc2tk_assets::shop_data::{self, Shops};
 use dc2tk_assets::{exe_tables, game_data, json, text};
 use dc2tk_disc::files;
@@ -68,23 +69,25 @@ fn read_path(current: &dyn Fn(&str) -> Result<Vec<u8>>, path: &str) -> Result<Ve
 }
 
 /// The table, from the files `current` gives (what an earlier step of the build rewrote, or the
-/// disc's own).
-fn load(table: &str, elf: &[u8], current: &dyn Fn(&str) -> Result<Vec<u8>>) -> Result<Table> {
+/// disc's own), checked against a profile's limits when edited.
+fn load(table: &str, elf: &[u8], current: &dyn Fn(&str) -> Result<Vec<u8>>, limits: &Limits) -> Result<Table> {
     let read_all =
         |paths: &[String]| -> Result<Vec<Vec<u8>>> { paths.iter().map(|path| read_path(current, path)).collect() };
     Ok(match table {
         "items" => {
             let paths = item_paths();
-            let items = Items::read(&read_all(&paths)?, None)?;
+            let items = Items::read(&read_all(&paths)?, None, limits)?;
             Table::Items(items, paths, exe_tables::spectrumise(elf)?)
         }
         "shops" => {
             let paths = shop_paths();
             let names = current(&names_path()).ok();
-            Table::Shops(Shops::read(&read_all(&paths)?, names.as_deref())?, paths, exe_tables::donny(elf)?)
+            Table::Shops(Shops::read(&read_all(&paths)?, names.as_deref(), limits)?, paths, exe_tables::donny(elf)?)
         }
-        "layouts" => Table::Layouts(Layouts::read(&read_all(&dungeon_layout::paths())?, dungeon_layout::parts(elf)?)?),
-        "chests" => Table::Chests(Chests::read(&read_all(&chest_data::paths())?)?),
+        "layouts" => {
+            Table::Layouts(Layouts::read(&read_all(&dungeon_layout::paths())?, dungeon_layout::parts(elf)?, limits)?)
+        }
+        "chests" => Table::Chests(Chests::read(&read_all(&chest_data::paths())?, limits)?),
         _ => {
             let Ok(kind) = game_data::kind(table) else {
                 return Err(Error::invalid(format!(
@@ -93,7 +96,7 @@ fn load(table: &str, elf: &[u8], current: &dyn Fn(&str) -> Result<Vec<u8>>) -> R
                 )));
             };
             let mut paths = (kind.paths)();
-            let read = (kind.read)(&read_all(&paths)?, elf)?;
+            let read = (kind.read)(&read_all(&paths)?, elf, limits)?;
             if table == "inventions" {
                 let ideas = Ideas::read(&read_all(&idea_data::paths())?)?;
                 paths.extend(idea_data::paths());
@@ -263,7 +266,8 @@ pub fn export(iso_path: &Path, table: &str) -> Result<String> {
 
 /// The table of an opened disc as the JSON text `mod asset` writes.
 pub fn export_from(disc: &DiscSource, table: &str) -> Result<String> {
-    let loaded = load(table, &disc.disc_file(elf::EXECUTABLE)?, &|path| Ok(disc.read(path)?.into_owned()))?;
+    let loaded =
+        load(table, &disc.disc_file(elf::EXECUTABLE)?, &|path| Ok(disc.read(path)?.into_owned()), &limits::RETAIL)?;
     Ok(json::json_text(&loaded.to_json()))
 }
 
@@ -338,7 +342,8 @@ pub fn english_item_letters(iso_path: &Path, mod_dirs: &[PathBuf]) -> Result<Vec
         return Ok(Vec::new());
     }
     let disc = DiscSource::open(iso_path)?;
-    let loaded = load("items", &disc.disc_file(elf::EXECUTABLE)?, &|path| Ok(disc.read(path)?.into_owned()))?;
+    let loaded =
+        load("items", &disc.disc_file(elf::EXECUTABLE)?, &|path| Ok(disc.read(path)?.into_owned()), &limits::RETAIL)?;
     let mut given = Vec::new();
     for line in &lines {
         given.push((line.module.clone(), read_table(line)?));
@@ -373,7 +378,13 @@ pub struct DataBuilt {
 /// executable comes back patched when any table changes it. `english_extra` is the letters the
 /// build draws as the English font's glyphs 288 on (replace::english_letters; empty for
 /// font::ENGLISH_EXTRA), which the items' English names and descriptions are written with.
-pub fn apply_data(iso_path: &Path, mod_dirs: &[PathBuf], files: &Files, english_extra: &[char]) -> Result<DataBuilt> {
+pub fn apply_data(
+    iso_path: &Path,
+    mod_dirs: &[PathBuf],
+    files: &Files,
+    english_extra: &[char],
+    limits: &Limits,
+) -> Result<DataBuilt> {
     let lines: Vec<Line> = replace::all_lines(mod_dirs)?.into_iter().filter(Line::is_data).collect();
     let mut built = DataBuilt { files: files.clone(), executable: None, changes: Vec::new() };
     if lines.is_empty() {
@@ -391,7 +402,7 @@ pub fn apply_data(iso_path: &Path, mod_dirs: &[PathBuf], files: &Files, english_
         // the layouts name parts as a data:parts line of the build names them
         let renamed =
             if table == "layouts" && !patches.is_empty() { Some(elf::apply_patches(&elf, &patches)?) } else { None };
-        let loaded = load(table, renamed.as_deref().unwrap_or(&elf), &current)?;
+        let loaded = load(table, renamed.as_deref().unwrap_or(&elf), &current, limits)?;
         let TableBuilt { mut change, rewritten, patches: found, texts } = match &loaded {
             // whole rooms, written again where they change (no pack holds a room script)
             Table::Layouts(layouts) => whole_files(
@@ -625,7 +636,8 @@ mod tests {
         fs::create_dir_all(&mod_dir).unwrap();
         crate::manifest::create(&mod_dir, Some("test.plain")).unwrap();
         let files = Files::from([("map/t01.stb".to_string(), vec![1, 2])]);
-        let built = apply_data(&folder.join("no.iso"), std::slice::from_ref(&mod_dir), &files, &[]).unwrap();
+        let built =
+            apply_data(&folder.join("no.iso"), std::slice::from_ref(&mod_dir), &files, &[], &limits::RETAIL).unwrap();
         let letters = english_item_letters(&folder.join("no.iso"), &[mod_dir]).unwrap();
         fs::remove_dir_all(&folder).unwrap();
         assert_eq!(built.files, files);

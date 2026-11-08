@@ -21,6 +21,7 @@ use serde_json::Value;
 
 use crate::cfg_text::{Arg, Script};
 use crate::data_table::{self, Adding, Kind, Place, Record, Table, S16, S32};
+use crate::limits::Limits;
 use crate::{lang, Result};
 
 pub const LANGUAGES: usize = 7;
@@ -32,8 +33,6 @@ pub const REQUESTS_MOST: usize = 16;
 pub const CONDITIONS_MOST: usize = 7;
 /// buff_1271: 0x3000 bytes of strings.
 pub const STRING_UNITS: usize = 0x300;
-/// NpcBaseData[180], filled by an unchecked u8 index.
-pub const TOWNSPEOPLE_MOST: usize = 180;
 /// NPC_BASE_DATA's name char[0x1C] and model char[0x10], filled by strcpy.
 pub const NAME_MOST: usize = 0x1B;
 pub const MODEL_MOST: usize = 0x0F;
@@ -181,7 +180,7 @@ pub fn requests(files: &[Vec<u8>]) -> Result<Table> {
     table.section("requests", &["town", "request"], requests);
     table.adding(Adding {
         most: REQUESTS_MOST,
-        why: "AnalyzeSrc's 16 requests a town",
+        why: "AnalyzeSrc's 16 requests a town".into(),
         place: Some("request"),
         key_args: vec![("request", "ANALYZE", 0, Kind::Int(0, REQUESTS_MOST as i64 - 1))],
         label_args: vec![("title", "ANALYZE", 2, 0xFF)],
@@ -195,7 +194,9 @@ pub fn requests(files: &[Vec<u8>]) -> Result<Table> {
 /// The townspeople (`data:townspeople`): by `npc` (the character number), the English name a
 /// label, with `model`, `message_kind`, `abilities`, `points`, `ability_costs` [4] and `debug`.
 /// New ones copy another (`like`), with `name`.
-pub fn townspeople(files: &[Vec<u8>]) -> Result<Table> {
+/// The townspeople, at most the profile's `townspeople` (NpcBaseData, filled by an unchecked u8
+/// index).
+pub fn townspeople(files: &[Vec<u8>], limits: &Limits) -> Result<Table> {
     let scripts = data_table::parse_all(&townspeople_paths(), files)?;
     let keyed: Vec<std::collections::BTreeMap<i32, Vec<usize>>> =
         scripts.iter().map(|script| data_table::by_first(script, "NPC_INFO")).collect();
@@ -222,11 +223,11 @@ pub fn townspeople(files: &[Vec<u8>]) -> Result<Table> {
         record.block = at.iter().map(|&(file, at)| (file, at, at)).collect();
         records.push(record);
     }
-    let mut table = Table::new("a townspeople table", scripts, Vec::new());
+    let mut table = Table::new_with("a townspeople table", scripts, Vec::new(), limits);
     table.section("townspeople", &["npc"], records);
     table.adding(Adding {
-        most: TOWNSPEOPLE_MOST,
-        why: "NpcBaseData[180]",
+        most: limits.townspeople,
+        why: format!("NpcBaseData[{}]", limits.townspeople),
         key_args: vec![("npc", "NPC_INFO", 0, Kind::Int(1, i16::MAX as i64))],
         label_args: vec![("name", "NPC_INFO", 1, NAME_MOST)],
         languages: (0..LANGUAGES).map(|file| (file, file)).collect(),
@@ -299,7 +300,7 @@ mod tests {
     #[ignore = "needs DC2TK_CORPUS"]
     fn corpus_townspeople_round_trip() {
         let files = corpus(&townspeople_paths());
-        let table = townspeople(&files).unwrap();
+        let table = townspeople(&files, &crate::limits::RETAIL).unwrap();
         assert_eq!(table.write(), files);
         assert_eq!(table.check(), Vec::<String>::new());
         let json = table.to_json();
@@ -309,7 +310,7 @@ mod tests {
         let edit = json!({"townspeople": [{"npc": 1, "points": 99}, {"npc": 2000, "like": 1, "name": "Newcomer", "model": "p01_04a"}]});
         let (edits, _) = table.changes(&edit, "m").unwrap();
         let written = table.apply(&edits).unwrap();
-        let again = townspeople(&written).unwrap().to_json();
+        let again = townspeople(&written, &crate::limits::RETAIL).unwrap().to_json();
         let new = again["townspeople"].as_array().unwrap().iter().find(|person| person["npc"] == 2000).unwrap();
         assert_eq!((&new["name"], &new["model"], &new["points"]), (&json!("Newcomer"), &json!("p01_04a"), &json!(64)));
         assert_eq!(again["townspeople"][0]["points"], 99);
@@ -320,5 +321,25 @@ mod tests {
             refused(json!({"townspeople": [{"npc": 2000, "like": 1, "name": "x".repeat(28)}]})).contains("27 bytes")
         );
         assert!(refused(json!({"townspeople": [{"npc": 1, "model": "a_model_too_long"}]})).contains("15"));
+    }
+
+    #[test]
+    fn townspeople_are_bounded_by_the_profile() {
+        let file = |count: usize| {
+            (1..=count)
+                .map(|n| format!("NPC_INFO {n},\"Person {n}\",\"p01_01a\",0,0,0,0,0,0,0,0;\r\n"))
+                .collect::<String>()
+                .into_bytes()
+        };
+        let new = json!({"townspeople": [{"npc": 9000, "like": 1, "name": "Newcomer"}]});
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let full = townspeople(&vec![file(limits.townspeople); LANGUAGES], limits).unwrap();
+            let error = full.changes(&new, "m").unwrap_err().to_string();
+            let wanted = format!("the game holds {} (NpcBaseData[{}])", limits.townspeople, limits.townspeople);
+            assert!(error.contains(&wanted), "{profile}: {error}");
+            let room = townspeople(&vec![file(limits.townspeople - 1); LANGUAGES], limits).unwrap();
+            assert!(room.changes(&new, "m").is_ok(), "{profile}");
+        }
     }
 }

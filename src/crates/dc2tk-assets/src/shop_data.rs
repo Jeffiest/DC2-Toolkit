@@ -17,15 +17,11 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::cfg_text::{self, Arg, Edit, Script, To};
+use crate::limits::Limits;
 use crate::{bail, Context, Result};
 
 pub const FOLDER: &str = "menu";
 pub const CHAPTERS: usize = 8;
-/// The goods one shop can list: SHOP_ITEM_MAX is 64, but a statement holds at most
-/// cfg_text::ARGS_MOST (64) arguments and the first is the shop id.
-pub const SHOP_ITEM_MAX: usize = 63;
-/// CShop::price has a slot for each item number below this; PRICE does not check.
-pub const PRICE_SLOTS: i64 = 0x200;
 
 /// The shop list files, by [`FOLDER`]: the eight chapters of the other languages', then of the
 /// Japanese.
@@ -48,6 +44,10 @@ pub fn currency(shop: i32) -> &'static str {
 #[derive(Clone, Debug)]
 pub struct Shops {
     scripts: Vec<Script>,
+    /// The profile's limits: the goods one shop lists (SHOP_ITEM_MAX, in one statement whose first
+    /// argument is the shop id, so one fewer than `statement_args`) and the item numbers CShop::price
+    /// has a slot for (PRICE does not check).
+    limits: Limits,
     /// {item: [statement index per file]}, None where a file has no PRICE for it.
     prices: BTreeMap<i32, Vec<Option<usize>>>,
     shops: BTreeMap<i32, Vec<Option<usize>>>,
@@ -78,7 +78,7 @@ fn by_chapter(values: Vec<Value>) -> Value {
 impl Shops {
     /// The shops from the sixteen files (by [`files`]) and the English item names
     /// (comdatmes1.cfg) to label them.
-    pub fn read(files: &[Vec<u8>], names: Option<&[u8]>) -> Result<Shops> {
+    pub fn read(files: &[Vec<u8>], names: Option<&[u8]>, limits: &Limits) -> Result<Shops> {
         let wanted = self::files();
         if files.len() != wanted.len() {
             bail!("the shop lists are {} files", wanted.len());
@@ -93,7 +93,7 @@ impl Shops {
         };
         let prices = keyed(&scripts, "PRICE");
         let shops = keyed(&scripts, "SHOP");
-        Ok(Shops { scripts, prices, shops, names: shown })
+        Ok(Shops { scripts, limits: *limits, prices, shops, names: shown })
     }
 
     fn values(&self, file: usize, statement: usize) -> Vec<Arg> {
@@ -303,8 +303,8 @@ impl Shops {
 
     /// A price for an item the lists lack: a PRICE line in every file, its buy and sell both given.
     fn new_price(&self, item: i64, record: &Map<String, Value>, module: &str, out: &mut Vec<Edit>) -> Result<()> {
-        if !(1..PRICE_SLOTS).contains(&item) {
-            bail!("price of item {item}: CShop::price has items 1 to {}", PRICE_SLOTS - 1);
+        if !(1..=self.limits.item_numbers).contains(&item) {
+            bail!("price of item {item}: CShop::price has items 1 to {}", self.limits.item_numbers);
         }
         let what = format!("new price of item {item}");
         for key in record.keys() {
@@ -393,7 +393,7 @@ impl Shops {
     }
 
     /// A chapter's goods from a mod's list: item numbers, each priced in that chapter (by the
-    /// game or one of the mods), at most SHOP_ITEM_MAX.
+    /// game or one of the mods), at most what one SHOP statement lists in the profile.
     fn goods_of(
         &self,
         value: &Value,
@@ -406,7 +406,7 @@ impl Shops {
         };
         let mut numbers = Vec::new();
         for item in items {
-            let Some(number) = item.as_i64().filter(|number| (1..PRICE_SLOTS).contains(number)) else {
+            let Some(number) = item.as_i64().filter(|number| (1..=self.limits.item_numbers).contains(number)) else {
                 bail!("{what}: {item} is not an item number");
             };
             let number = number as i32;
@@ -415,15 +415,16 @@ impl Shops {
             }
             numbers.push(number);
         }
-        if numbers.len() > SHOP_ITEM_MAX {
-            bail!("{what}: {} goods; a shop lists at most {SHOP_ITEM_MAX}", numbers.len());
+        let most = self.limits.shop_goods_a_statement();
+        if numbers.len() > most {
+            bail!("{what}: {} goods; a shop lists at most {most}", numbers.len());
         }
         Ok(numbers)
     }
 
     /// The files with the edits made, by [`files`].
     pub fn apply(&self, edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
-        cfg_text::apply_edits(&self.scripts, edits)
+        cfg_text::apply_edits(&self.scripts, edits, self.limits.statement_args)
     }
 
     pub fn write(&self) -> Vec<Vec<u8>> {
@@ -465,7 +466,7 @@ mod tests {
 
     #[test]
     fn prices_and_goods_read_by_chapter() {
-        let shops = Shops::read(&sample(), Some(b"MES_SYS 11,\"Swan\";\r\n")).unwrap();
+        let shops = Shops::read(&sample(), Some(b"MES_SYS 11,\"Swan\";\r\n"), &crate::limits::RETAIL).unwrap();
         let json = shops.to_json();
         assert_eq!(
             json["prices"][1],
@@ -483,7 +484,7 @@ mod tests {
 
     #[test]
     fn edits_reach_every_chapter_and_language() {
-        let shops = Shops::read(&sample(), None).unwrap();
+        let shops = Shops::read(&sample(), None, &crate::limits::RETAIL).unwrap();
         let edit = json!({"prices": [{"item": 11, "buy": 500}], "shops": [{"shop": 33, "items": [12, 1]}]});
         let files = shops.apply(&shops.changes(&edit, "m").unwrap()).unwrap();
         for file in &files {
@@ -503,7 +504,7 @@ mod tests {
 
     #[test]
     fn numbers_past_an_int_are_refused_not_taken_for_a_smaller_one() {
-        let shops = Shops::read(&sample(), None).unwrap();
+        let shops = Shops::read(&sample(), None, &crate::limits::RETAIL).unwrap();
         let refused = |edit: Value| shops.changes(&edit, "m").unwrap_err().to_string();
         // 4294967297 is 1 in 32 bits: it must not edit item 1's price, nor 4294967296 shop 0
         let error = refused(json!({"prices": [{"item": 4294967297_i64, "buy": 7}]}));
@@ -514,7 +515,7 @@ mod tests {
 
     #[test]
     fn new_prices_and_shops_are_new_lines() {
-        let shops = Shops::read(&sample(), None).unwrap();
+        let shops = Shops::read(&sample(), None, &crate::limits::RETAIL).unwrap();
         let price = json!({"prices": [{"item": 429, "buy": 1, "sell": 0}]});
         let sold = json!({"shops": [{"shop": 0, "items": [1, 429]}, {"shop": 40, "items": [429]}]});
         // the price in one mod, the goods in another
@@ -529,7 +530,7 @@ mod tests {
                 "{text}"
             );
         }
-        let again = Shops::read(&files, None).unwrap().to_json();
+        let again = Shops::read(&files, None, &crate::limits::RETAIL).unwrap().to_json();
         assert_eq!(again["shops"][2], json!({"shop": 40, "currency": "money", "items": [429]}));
         // one price given twice alike is one line; given two ways, refused
         let twice = shops.changes_all(&[("a".into(), price.clone()), ("b".into(), price)]).unwrap();
@@ -552,7 +553,7 @@ mod tests {
         let menu = std::path::Path::new(&corpus).join(FOLDER);
         let files: Vec<Vec<u8>> = super::files().iter().map(|file| std::fs::read(menu.join(file)).unwrap()).collect();
         let names = std::fs::read(menu.join("cfg7").join(crate::item_data::NAMES)).ok();
-        let shops = Shops::read(&files, names.as_deref()).unwrap();
+        let shops = Shops::read(&files, names.as_deref(), &crate::limits::RETAIL).unwrap();
         assert_eq!(shops.write(), files);
         let json: Value = serde_json::from_str(&crate::json::json_text(&shops.to_json())).unwrap();
         assert!(shops.changes(&json, "m").unwrap().is_empty());
@@ -566,5 +567,29 @@ mod tests {
             }
         }
         eprintln!("{} prices and {} shops in {} files round-trip", shops.prices.len(), shops.shops.len(), files.len());
+    }
+
+    #[test]
+    fn prices_and_goods_are_bounded_by_the_profile() {
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let shops = Shops::read(&sample(), None, limits).unwrap();
+            let price = |item: i64| json!({"prices": [{"item": item, "buy": 1, "sell": 0}]});
+            assert!(shops.changes(&price(limits.item_numbers), "m").is_ok(), "{profile}");
+            let error = shops.changes(&price(limits.item_numbers + 1), "m").unwrap_err().to_string();
+            assert!(error.contains(&format!("1 to {}", limits.item_numbers)), "{profile}: {error}");
+            let most = limits.shop_goods_a_statement();
+            let prices: Vec<Value> = (0..=most).map(|i| json!({"item": 1 + i as i64, "buy": 1, "sell": 0})).collect();
+            let priced = json!({"prices": prices});
+            let goods = |count: usize| {
+                let list: Vec<Value> = (0..count).map(|i| json!(1 + i as i64)).collect();
+                json!({"shops": [{"shop": 0, "items": list}]})
+            };
+            assert!(shops.changes_all(&[("a".into(), priced.clone()), ("b".into(), goods(most))]).is_ok(), "{profile}");
+            let error =
+                shops.changes_all(&[("a".into(), priced), ("b".into(), goods(most + 1))]).unwrap_err().to_string();
+            assert!(error.contains(&format!("at most {most}")), "{profile}: {error}");
+            assert_eq!(most, 63, "SPI_STACK_SIZE bounds a statement in {profile}");
+        }
     }
 }

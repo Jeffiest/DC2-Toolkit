@@ -17,11 +17,10 @@ use serde_json::Value;
 
 use crate::cfg_text::Arg;
 use crate::data_table::{self, Place, Record, Table, S16, S32, S8};
+use crate::limits::Limits;
 use crate::Result;
 
 pub const DUNGEONS: usize = 7;
-/// MONSTER_LOCATE_MAX: the monsters one floor's list holds.
-pub const MONSTERS_MOST: usize = 32;
 
 pub fn medal_paths() -> Vec<String> {
     (0..DUNGEONS).map(|dungeon| format!("menu/dngmap/dflr{dungeon}.cfg")).collect()
@@ -78,8 +77,15 @@ pub fn medals(files: &[Vec<u8>]) -> Result<Table> {
     Ok(table)
 }
 
-/// The monsters of each floor: the FL statements of its last FLS .. FLE block.
-pub fn floors(files: &[Vec<u8>]) -> Result<Table> {
+/// The monsters of each floor: the FL statements of its last FLS .. FLE block, at most the
+/// profile's `floor_monsters` (MONSTER_LOCATE_MAX). The engine reads every FL statement's pairs,
+/// and a statement holds `statement_args` arguments (SPI_STACK_SIZE), so where the profile's
+/// list outgrows one statement the list is written as many statements of as many pairs as one
+/// holds, added after the last; retail's 32 pairs fit one statement, and its lists keep their
+/// lines as they were.
+pub fn floors(files: &[Vec<u8>], limits: &Limits) -> Result<Table> {
+    let pairs_a_statement = limits.statement_args / 2;
+    let spread = limits.floor_monsters > pairs_a_statement;
     let scripts = data_table::parse_all(&floor_paths(), files)?;
     let mut blocks: std::collections::BTreeMap<(usize, i32), Vec<(usize, usize)>> = Default::default();
     for (dungeon, script) in scripts.iter().enumerate() {
@@ -109,14 +115,14 @@ pub fn floors(files: &[Vec<u8>]) -> Result<Table> {
             Place::Lines {
                 copies: vec![at],
                 entry: vec![("monster", S16), ("talk", S16)],
-                count: (0, MONSTERS_MOST),
-                per_line: 0,
-                grow: false,
+                count: (0, limits.floor_monsters),
+                per_line: if spread { pairs_a_statement } else { 0 },
+                grow: spread,
             },
         );
         records.push(record);
     }
-    let mut table = Table::new("a floor table", scripts, Vec::new());
+    let mut table = Table::new_with("a floor table", scripts, Vec::new(), limits);
     table.section("floors", &["dungeon", "floor"], records);
     Ok(table)
 }
@@ -139,7 +145,7 @@ mod tests {
                 text.as_bytes().to_vec()
             })
             .collect();
-        let table = floors(&files).unwrap();
+        let table = floors(&files, &crate::limits::RETAIL).unwrap();
         assert_eq!(table.to_json()["floors"][0]["monsters"][2], json!({"monster": 8, "talk": 800}));
         let edit = json!({"floors": [{"dungeon": 0, "floor": 1, "monsters": [{"monster": 4, "talk": 400}]}]});
         let written = table.apply(&table.changes(&edit, "m").unwrap().0).unwrap();
@@ -155,7 +161,7 @@ mod tests {
         let medals = medals(&medal_files).unwrap();
         assert_eq!(medals.write(), medal_files);
         assert_eq!(medals.check(), Vec::<String>::new());
-        let floors = floors(&floor_files).unwrap();
+        let floors = floors(&floor_files, &crate::limits::RETAIL).unwrap();
         assert_eq!(floors.write(), floor_files);
         assert_eq!(floors.check(), Vec::<String>::new());
         eprintln!(
@@ -163,5 +169,24 @@ mod tests {
             medals.sections[0].records.len(),
             floors.sections[0].records.len()
         );
+    }
+
+    #[test]
+    fn a_floors_monsters_are_bounded_by_the_profile() {
+        let files: Vec<Vec<u8>> = (0..DUNGEONS)
+            .map(|dungeon| if dungeon == 0 { b"FLS 1,3;\r\nFL 0,0;\r\nFLE;\r\n".to_vec() } else { Vec::new() })
+            .collect();
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let table = floors(&files, limits).unwrap();
+            let monsters = |count: usize| {
+                let list: Vec<_> = (0..count).map(|i| json!({"monster": i as i64 % 100, "talk": 0})).collect();
+                json!({"floors": [{"dungeon": 0, "floor": 1, "monsters": list}]})
+            };
+            let written = |edit| table.changes(&edit, "m").and_then(|changed| table.apply(&changed.0));
+            written(monsters(limits.floor_monsters)).unwrap_or_else(|error| panic!("{profile}: {error}"));
+            let error = written(monsters(limits.floor_monsters + 1)).unwrap_err().to_string();
+            assert!(error.contains(&format!("0 to {}", limits.floor_monsters)), "{profile}: {error}");
+        }
     }
 }

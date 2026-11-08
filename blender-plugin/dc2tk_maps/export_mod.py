@@ -5,7 +5,7 @@ from collections import OrderedDict
 
 import bpy
 
-from . import c2data, import_map, look, prefs, runner, schema
+from . import c2data, import_map, limits, look, prefs, runner, schema
 
 
 def export_kwargs(path):
@@ -423,6 +423,8 @@ class DC2TK_OT_build(bpy.types.Operator):
             os.path.dirname(mod_dir),
             "--mod",
             mod_id(mod_dir),
+            "--limits",
+            limits.profile(context),
         ]
         return ("dc2tk build", command, prefs.working_dir(settings))
 

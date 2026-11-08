@@ -85,6 +85,7 @@ nav:
           - Maps and Blender: guide/maps.md
           - Dungeons: guide/dungeons.md
       - Memory Limits: guide/memory.md
+      - Capacity Limits: guide/limits.md
   - Scripting:
       - How Scripts Work & Lifecycle: scripting/README.md
       - Map, Monster, and Player Scripts: scripting/systems.md

@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use crate::archive::{self, Member};
 use crate::{iso, Error, Result, WithPath};
@@ -262,13 +262,37 @@ pub fn write_disc(source_path: &Path, out_path: &Path, files: &BTreeMap<String, 
 /// so `build ... game.iso -o game.iso` would destroy the image. Both paths are resolved (links,
 /// "..", case on Windows); an output that does not exist yet cannot be the input.
 fn refuse_output_over_input(iso_path: &Path, out_path: &Path) -> Result<()> {
-    match (fs::canonicalize(iso_path), fs::canonicalize(out_path)) {
-        (Ok(input), Ok(output)) if input == output => Err(Error::invalid(format!(
+    match (fs::canonicalize(iso_path), resolved(out_path)) {
+        (Ok(input), Some(output)) if input == output => Err(Error::invalid(format!(
             "{} is the image the build reads; write the new image to another file",
             out_path.display()
         ))),
         _ => Ok(()),
     }
+}
+
+/// The path with links and "." and ".." resolved, component by component, so a path through a
+/// folder that does not exist yet (`out/../game.iso`, which `fs::canonicalize` refuses, and the
+/// kernel opens as `game.iso` once `out` is made) still names the file it reaches. A component
+/// that cannot be resolved (nothing of that name yet) is kept as written; a `..` after it steps
+/// back lexically, which is exact since a folder that does not exist is not a link.
+fn resolved(path: &Path) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        let candidate = out.join(component);
+        if let Ok(found) = fs::canonicalize(&candidate) {
+            out = found;
+            continue;
+        }
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
 }
 
 /// The output image, a copy of the input to change in place: the image copied, or the extracted
@@ -398,6 +422,19 @@ mod tests {
         if cfg!(windows) {
             assert!(write_disc(&iso, &folder.join("DISC.ISO"), &files).is_err());
         }
+        assert!(!folder.join("out").exists(), "a refused build makes no folder");
+        #[cfg(unix)]
+        {
+            let link = folder.join("link.iso");
+            std::os::unix::fs::symlink(&iso, &link).unwrap();
+            for out in [link.clone(), folder.join("out").join("..").join("link.iso")] {
+                let error = write_disc(&iso, &out, &files).unwrap_err();
+                assert!(error.to_string().contains("is the image the build reads"), "{error}");
+                assert_eq!(fs::read(&iso).unwrap(), samples::sample_disc());
+            }
+        }
+        write_disc(&iso, &folder.join("out").join("disc.iso"), &files).unwrap();
+        assert_eq!(fs::read(&iso).unwrap(), samples::sample_disc());
         fs::remove_dir_all(&folder).unwrap();
     }
 

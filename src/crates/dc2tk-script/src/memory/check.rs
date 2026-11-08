@@ -65,13 +65,14 @@ pub(super) fn map_of(path: &str) -> Option<String> {
 
 /// What `build` says about the memory the changed files' loads use: an error where a budget that
 /// is certain is exceeded, a warning where an estimated one is (and the load grew), a note of what
-/// each changed load uses. `changed` are the DATA.DAT paths the build rewrites or adds.
-pub fn check(original: &dyn Disc, modded: &dyn Disc, changed: &[String]) -> Vec<Finding> {
+/// each changed load uses, after a note of the limits profile the loads are checked against.
+/// `changed` are the DATA.DAT paths the build rewrites or adds.
+pub fn check(original: &dyn Disc, modded: &dyn Disc, changed: &[String], limits: &Limits) -> Vec<Finding> {
     // a file written back with its own bytes changes no load
     let changed: Vec<String> =
         changed.iter().filter(|path| modded.read(path) != original.read(path)).cloned().collect();
     let changed = changed.as_slice();
-    let mut out = Vec::new();
+    let mut out = vec![finding(Level::Note, format!("limits {}", limits.describe()))];
     let mut covered: Vec<String> = Vec::new();
 
     // maps whose files changed, listed or found by name
@@ -95,7 +96,7 @@ pub fn check(original: &dyn Disc, modded: &dyn Disc, changed: &[String]) -> Vec<
             continue;
         }
         covered.extend(touched.iter().map(|path| path.to_string()));
-        out.extend(check_map(original, modded, entry));
+        out.extend(check_map(original, modded, entry, limits));
     }
     for path in changed {
         let lower = path.to_lowercase();
@@ -135,7 +136,7 @@ pub fn check(original: &dyn Disc, modded: &dyn Disc, changed: &[String]) -> Vec<
     out
 }
 
-fn check_map(original: &dyn Disc, modded: &dyn Disc, entry: &MapEntry) -> Vec<Finding> {
+fn check_map(original: &dyn Disc, modded: &dyn Disc, entry: &MapEntry, limits: &Limits) -> Vec<Finding> {
     let mut out = Vec::new();
     let name = &entry.name;
     let kind = entry.kind;
@@ -163,13 +164,13 @@ fn check_map(original: &dyn Disc, modded: &dyn Disc, entry: &MapEntry) -> Vec<Fi
             ),
         ));
     }
-    if new.placements > kind.placements() {
+    if new.placements > kind.placements(limits) {
         out.push(finding(
             Level::Error,
             format!(
                 "map {name}: {} placements, more than the {} its placement table holds (SetPlacePartsBuff); the rest are not placed",
                 new.placements,
-                kind.placements()
+                kind.placements(limits)
             ),
         ));
     }
@@ -222,7 +223,7 @@ fn check_map(original: &dyn Disc, modded: &dyn Disc, entry: &MapEntry) -> Vec<Fi
             was(new.read, old.as_ref().map(|old| old.read)),
             n(READ_BUFFER),
             new.placements,
-            kind.placements(),
+            kind.placements(limits),
             blocks.blocks,
             match old_blocks {
                 Some(old) if old.blocks != blocks.blocks => format!(" (was {})", old.blocks),

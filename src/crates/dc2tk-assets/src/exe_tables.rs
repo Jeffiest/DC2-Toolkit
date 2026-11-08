@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::bytes::u16_at;
 use crate::data_table::{self, Kind, Record, Table, S16, S8};
 use crate::elf::table_offset;
-use crate::item_data::ITEM_MOST;
+use crate::limits::RETAIL;
 use crate::Result;
 
 /// etcitem_spectol_table: s8 {slot, value} by item number - 1 (SetItemSpectolPoint).
@@ -80,7 +80,7 @@ pub fn donny(elf: &[u8]) -> Result<Table> {
         let at = start + row * DONNY_RECORD;
         let mut record = Record::new(&[("row", Value::from(row))]);
         // an item of 0 or less would end the list there
-        record.bytes("item", Kind::Int(1, ITEM_MOST), at, 1);
+        record.bytes("item", Kind::Int(1, RETAIL.item_numbers), at, 1);
         record.bytes("level", S8, at + 2, 1);
         records.push(record);
     }
@@ -143,7 +143,7 @@ pub fn gifts(elf: &[u8]) -> Result<Table> {
         let mut record = Record::new(&[("row", Value::from(row))]);
         // a gift type of -1 would end the table there
         record.bytes("gift_type", Kind::Int(0, i16::MAX as i64), at, 1);
-        record.bytes("item", Kind::Int(0, ITEM_MOST), at + 2, 1).bytes("unread", S16, at + 4, 1);
+        record.bytes("item", Kind::Int(0, RETAIL.item_numbers), at + 2, 1).bytes("unread", S16, at + 4, 1);
         records.push(record);
     }
     let mut table = Table::new("a gift table", Vec::new(), elf.to_vec());

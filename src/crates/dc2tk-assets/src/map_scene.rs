@@ -794,7 +794,7 @@ mod tests {
             let mut scene = build_scene(&map, "test", &kind_of).unwrap();
             blenderish(&mut scene, 0);
             let edit = read_scene(&scene, &map).unwrap();
-            let rebuilt = map_edit::rebuild(&map, &edit).unwrap();
+            let rebuilt = map_edit::rebuild(&map, &edit, &crate::limits::RETAIL).unwrap();
             assert_eq!(mapfile::write(&rebuilt).unwrap(), bytes, "{}", path.display());
         }
         println!("{} maps go to scenes and back byte for byte", paths.len());
@@ -895,12 +895,12 @@ mod tests {
         blenderish(&mut scene, 0);
         let edit = read_scene(&scene, &map).unwrap();
         assert!(edit.placements.iter().all(|placement| placement.preview && placement.slot.is_none()));
-        assert_eq!(map_edit::rebuild(&map, &edit).unwrap(), map);
+        assert_eq!(map_edit::rebuild(&map, &edit, &crate::limits::RETAIL).unwrap(), map);
         // a piece moved in a preview moves in its template; nothing is placed
         let mut edit = edit;
         let way01 = edit.placements.iter_mut().find(|placement| placement.placement.name == "way01").unwrap();
         way01.pieces[0].pos[1] = Num::Int(-20);
-        let out = map_edit::rebuild(&map, &edit).unwrap();
+        let out = map_edit::rebuild(&map, &edit, &crate::limits::RETAIL).unwrap();
         assert!(out.placements.is_empty());
         assert_eq!(out.templates[1].pieces[0].pos[1], Num::Int(-20));
         assert_eq!((out.templates.len(), &out.templates[3]), (4, &map.templates[3]));
@@ -940,7 +940,7 @@ mod tests {
         let edit = read_scene(&scene, &map).unwrap();
         let pieces: Vec<&Vec<Piece>> = edit.placements.iter().map(|placement| &placement.pieces).collect();
         assert!(pieces.iter().all(|found| *found == pieces[0]), "{pieces:?}");
-        let out = map_edit::rebuild(&map, &edit).unwrap();
+        let out = map_edit::rebuild(&map, &edit, &crate::limits::RETAIL).unwrap();
         assert_eq!(out.templates.len(), 1);
         assert!(out.placements.iter().all(|placement| placement.template == "tree"));
     }

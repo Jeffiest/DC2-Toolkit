@@ -26,15 +26,13 @@ use serde_json::{json, Value};
 
 use crate::cfg_text::{self, Arg, Script, Statement};
 use crate::json::{self, member};
+use crate::limits::Limits;
 use crate::{bail, Context, Result};
 
 pub const FOLDER: &str = "dungeon/cfg_file";
 /// The chest scripts on the disc: tbox_d01.cfg to tbox_d08.cfg (d08, "back dungeon 2", has none).
 pub const DUNGEONS: usize = 8;
-pub const GROUPS_MOST: usize = 64;
-pub const ITEMS_MOST: usize = 96;
 pub const FLOORS: i32 = 128;
-pub const FLOOR_GROUPS_MOST: usize = 64;
 /// Items a line as the disc writes them.
 const ITEMS_A_LINE: usize = 5;
 
@@ -153,6 +151,9 @@ impl Change {
 #[derive(Clone, Debug)]
 pub struct Chests {
     files: Vec<File>,
+    /// The profile's limits: the groups a dungeon's table holds (`chest_groups`), the items a group
+    /// gives (`chest_group_items`) and the groups a floor draws from (`chest_floor_groups`).
+    limits: Limits,
 }
 
 fn whole(value: &Value, what: &str) -> Result<i32> {
@@ -164,13 +165,13 @@ fn whole(value: &Value, what: &str) -> Result<i32> {
 }
 
 impl Chests {
-    pub fn read(files: &[Vec<u8>]) -> Result<Chests> {
+    pub fn read(files: &[Vec<u8>], limits: &Limits) -> Result<Chests> {
         if files.len() != DUNGEONS {
             bail!("{} chest scripts given, {DUNGEONS} wanted", files.len());
         }
         let paths = paths();
         let files = files.iter().zip(&paths).map(|(data, path)| File::parse(data, path)).collect::<Result<_>>()?;
-        Ok(Chests { files })
+        Ok(Chests { files, limits: *limits })
     }
 
     pub fn write(&self) -> Vec<Vec<u8>> {
@@ -241,8 +242,8 @@ impl Chests {
                     let field = |key: &str| whole(member(entry, key), &format!("{what}: an item's {key}"));
                     items.push((field("item")?, field("rank")?, field("count")?));
                 }
-                if items.is_empty() || items.len() > ITEMS_MOST {
-                    bail!("{what}: a group gives 1 to {ITEMS_MOST} items");
+                if items.is_empty() || items.len() > self.limits.chest_group_items {
+                    bail!("{what}: a group gives 1 to {} items", self.limits.chest_group_items);
                 }
                 if file.groups.iter().find(|known| known.id == id).map(|known| &known.items) != Some(&items) {
                     let shown = format!("{what}: {} items", items.len());
@@ -261,8 +262,8 @@ impl Chests {
                 };
                 let groups =
                     listed.iter().map(|id| whole(id, &format!("{what}: a group id"))).collect::<Result<Vec<_>>>()?;
-                if groups.is_empty() || groups.len() > FLOOR_GROUPS_MOST {
-                    bail!("{what}: a floor draws from 1 to {FLOOR_GROUPS_MOST} groups");
+                if groups.is_empty() || groups.len() > self.limits.chest_floor_groups {
+                    bail!("{what}: a floor draws from 1 to {} groups", self.limits.chest_floor_groups);
                 }
                 if file.floors.iter().find(|known| known.floor == number).map(|known| &known.groups) != Some(&groups) {
                     let shown =
@@ -319,8 +320,8 @@ impl Chests {
                 }
             }
             let path = &paths[dungeon];
-            if groups.len() > GROUPS_MOST {
-                bail!("{path}: {} groups; the game holds {GROUPS_MOST}", groups.len());
+            if groups.len() > self.limits.chest_groups {
+                bail!("{path}: {} groups; the game holds {}", groups.len(), self.limits.chest_groups);
             }
             for Wanted { number, holds: ids, .. } in &floors {
                 if let Some(missing) =
@@ -455,7 +456,7 @@ mod tests {
     #[test]
     fn chests_read_and_write_back() {
         let files = sample();
-        let chests = Chests::read(&files).unwrap();
+        let chests = Chests::read(&files, &crate::limits::RETAIL).unwrap();
         assert_eq!(chests.write(), files);
         let json = chests.to_json();
         assert_eq!(json["chests"][0]["groups"][1]["items"][1], json!({"item": 275, "rank": 70, "count": 2}));
@@ -466,7 +467,7 @@ mod tests {
 
     #[test]
     fn groups_and_floors_change_and_are_added() {
-        let chests = Chests::read(&sample()).unwrap();
+        let chests = Chests::read(&sample(), &crate::limits::RETAIL).unwrap();
         let edit = json!({"chests": [{"dungeon": 0,
             "groups": [{"group": 13, "items": [{"item": 5, "rank": 1, "count": 1}]},
                        {"group": 20, "items": [{"item": 7, "rank": 9, "count": 2}]}],
@@ -480,7 +481,7 @@ mod tests {
              FLOOR_START 3,5;\r\nFLOOR 1,1,20;\r\nFLOOR 2,2,13,12;\r\nFLOOR 3,2,12,20;\r\n"
         );
         assert_eq!(written[1], sample()[1]);
-        let again = Chests::read(&written).unwrap();
+        let again = Chests::read(&written, &crate::limits::RETAIL).unwrap();
         assert!(again.changes(&edit, "m").unwrap().is_empty());
         // a floor drawing from a group no one gives would hang the game
         let missing = json!({"chests": [{"dungeon": 0, "floors": [{"floor": 1, "groups": [99]}]}]});
@@ -495,7 +496,7 @@ mod tests {
 
     #[test]
     fn a_member_of_the_wrong_shape_is_refused_not_ignored() {
-        let chests = Chests::read(&sample()).unwrap();
+        let chests = Chests::read(&sample(), &crate::limits::RETAIL).unwrap();
         let refused = |edit: Value| chests.changes(&edit, "m").unwrap_err().to_string();
         let error = refused(json!({"chests": [{"dungeon": 0, "groups": {"group": 13, "items": []}}]}));
         assert_eq!(error, "dungeon 0: \"groups\" is a list, not an object");
@@ -516,7 +517,7 @@ mod tests {
         let corpus = dc2tk_disc::samples::corpus();
         let files: Vec<Vec<u8>> =
             paths().iter().map(|path| std::fs::read(std::path::Path::new(&corpus).join(path)).unwrap()).collect();
-        let chests = Chests::read(&files).unwrap();
+        let chests = Chests::read(&files, &crate::limits::RETAIL).unwrap();
         assert_eq!(chests.write(), files);
         let json = chests.to_json();
         assert!(chests.changes(&json, "m").unwrap().is_empty());
@@ -542,7 +543,44 @@ mod tests {
                     }))
             })
             .collect();
-        let again = Chests::read(&chests.apply(&all).unwrap()).unwrap();
+        let again = Chests::read(&chests.apply(&all).unwrap(), &crate::limits::RETAIL).unwrap();
         assert_eq!(again.to_json(), json);
+    }
+
+    #[test]
+    fn chest_tables_are_bounded_alike_in_both_profiles() {
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let chests = Chests::read(&sample(), limits).unwrap();
+            let items = |count: usize| -> Vec<Value> {
+                (0..count).map(|i| json!({"item": 1 + i as i64, "rank": 1, "count": 1})).collect()
+            };
+            let group =
+                |count: usize| json!({"chests": [{"dungeon": 0, "groups": [{"group": 13, "items": items(count)}]}]});
+            assert!(chests.changes(&group(limits.chest_group_items), "m").is_ok(), "{profile}");
+            let error = chests.changes(&group(limits.chest_group_items + 1), "m").unwrap_err().to_string();
+            assert!(error.contains(&format!("1 to {} items", limits.chest_group_items)), "{profile}: {error}");
+            let floor = |count: usize| {
+                let ids: Vec<Value> = (0..count).map(|i| json!(100 + i as i64)).collect();
+                json!({"chests": [{"dungeon": 0, "floors": [{"floor": 1, "groups": ids}]}]})
+            };
+            let error = chests.changes(&floor(limits.chest_floor_groups + 1), "m").unwrap_err().to_string();
+            assert!(error.contains(&format!("1 to {} groups", limits.chest_floor_groups)), "{profile}: {error}");
+            let groups = |count: usize| {
+                let list: Vec<Value> =
+                    (0..count).map(|i| json!({"group": 100 + i as i64, "items": items(1)})).collect();
+                json!({"chests": [{"dungeon": 0, "groups": list}]})
+            };
+            let fits = chests.changes(&groups(limits.chest_groups - 2), "m").unwrap();
+            assert!(chests.apply(&fits).is_ok(), "{profile}");
+            let one_more = chests.changes(&groups(limits.chest_groups - 1), "m").unwrap();
+            let error = chests.apply(&one_more).unwrap_err().to_string();
+            assert!(error.contains(&format!("the game holds {}", limits.chest_groups)), "{profile}: {error}");
+            assert_eq!(
+                (limits.chest_groups, limits.chest_group_items, limits.chest_floor_groups),
+                (64, 96, 64),
+                "the engine reads the chest table at its retail shape in {profile}"
+            );
+        }
     }
 }

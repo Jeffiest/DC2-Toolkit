@@ -27,6 +27,7 @@ use serde_json::{json, Map, Value};
 use crate::bytes::{u16_at, u32_at};
 use crate::cfg_text::{self, Arg, Script, Statement};
 use crate::elf::file_offset;
+use crate::limits::Limits;
 use crate::{bail, json, Context, Error, Result};
 
 /// The room scripts on the disc, by name (`dungeon/cfg_file/<name>.cfg`). d04f01 and d07f02 are
@@ -40,10 +41,6 @@ pub const FOLDER: &str = "dungeon/cfg_file";
 /// PartsInfoData: AUTOMAP_PARTS_INFO {char *name; s16 kind; u8 link; u8 entrance; s16 tile[8]}.
 pub const PARTS_TABLE: u32 = 0x33D440;
 pub const PARTS_RECORD: usize = 0x18;
-/// The room layouts SetupRoomInfo makes room for.
-pub const ROOMS_MOST: usize = 64;
-/// The cells of the generator's grid (CAutoMapParts[900], dng_main.cpp).
-pub const CELLS_MOST: usize = 900;
 
 pub fn paths() -> Vec<String> {
     LAYOUTS.iter().map(|name| format!("{FOLDER}/{name}.cfg")).collect()
@@ -325,6 +322,9 @@ pub struct Change {
 pub struct Layouts {
     parts: Vec<Part>,
     layouts: Vec<Layout>,
+    /// The profile's limits: the room layouts SetupRoomInfo makes room for (`layout_rooms`) and
+    /// the cells of the generator's grid (`layout_cells`, CAutoMapParts in dng_main.cpp).
+    limits: Limits,
 }
 
 fn number(value: &Value, what: &str) -> Result<i32> {
@@ -337,12 +337,12 @@ fn number(value: &Value, what: &str) -> Result<i32> {
 
 impl Layouts {
     /// The scripts of [`paths`], in order, with the executable's part names.
-    pub fn read(files: &[Vec<u8>], parts: Vec<Part>) -> Result<Layouts> {
+    pub fn read(files: &[Vec<u8>], parts: Vec<Part>, limits: &Limits) -> Result<Layouts> {
         if files.len() != LAYOUTS.len() {
             bail!("{} room scripts given, {} wanted", files.len(), LAYOUTS.len());
         }
         let layouts = files.iter().zip(LAYOUTS).map(|(data, name)| Layout::parse(data, name)).collect::<Result<_>>()?;
-        Ok(Layouts { parts, layouts })
+        Ok(Layouts { parts, layouts, limits: *limits })
     }
 
     pub fn write(&self) -> Vec<Vec<u8>> {
@@ -402,8 +402,9 @@ impl Layouts {
         if cells.iter().any(|row| row.len() != width) {
             bail!("{what}: every row of a room has the same number of cells ({width} in the first)");
         }
-        if width * cells.len() > CELLS_MOST {
-            bail!("{what}: {width} × {} cells; the floor's grid holds {CELLS_MOST}", cells.len());
+        let most = self.limits.layout_cells;
+        if width * cells.len() > most {
+            bail!("{what}: {width} × {} cells; the floor's grid holds {most}", cells.len());
         }
         Ok(cells)
     }
@@ -458,8 +459,8 @@ impl Layouts {
                     json::member(room, "room"),
                     &format!("layout {name}: a room's \"room\" (its place in the file, from 0)"),
                 )?;
-                if number < 0 || number as usize >= ROOMS_MOST {
-                    bail!("layout {name} room {number}: the rooms are 0 to {}", ROOMS_MOST - 1);
+                if number < 0 || number as usize >= self.limits.layout_rooms {
+                    bail!("layout {name} room {number}: the rooms are 0 to {}", self.limits.layout_rooms - 1);
                 }
                 let number = number as usize;
                 if seen.contains(&number) {
@@ -560,8 +561,9 @@ impl Layouts {
             );
         }
         let rooms: Vec<Room> = rooms.into_iter().flatten().collect();
-        if rooms.len() > ROOMS_MOST {
-            bail!("{}: {} rooms; the generator holds {ROOMS_MOST}", LAYOUTS[index], rooms.len());
+        let most = self.limits.layout_rooms;
+        if rooms.len() > most {
+            bail!("{}: {} rooms; the generator holds {most}", LAYOUTS[index], rooms.len());
         }
         Ok(Edited { rooms, changed, grid })
     }
@@ -680,7 +682,7 @@ mod tests {
     #[test]
     fn rooms_read_as_named_cells_and_write_back() {
         let files = sample();
-        let layouts = Layouts::read(&files, parts()).unwrap();
+        let layouts = Layouts::read(&files, parts(), &crate::limits::RETAIL).unwrap();
         assert_eq!(layouts.write(), files);
         let json = layouts.to_json();
         assert_eq!(json["layouts"][0]["grid_size"], json!([320.0, 320.0]));
@@ -693,7 +695,7 @@ mod tests {
     #[test]
     fn a_changed_room_is_written_again_and_a_new_one_appended() {
         let files = sample();
-        let layouts = Layouts::read(&files, parts()).unwrap();
+        let layouts = Layouts::read(&files, parts(), &crate::limits::RETAIL).unwrap();
         let edit = json!({"layouts": [
             {"layout": "d01f01", "rooms": [{"room": 1, "rate": 75, "cells": ["way01 way00"]}, {"room": 2, "cells": ["room01"]}]},
             {"layout": "d02f01", "grid_size": [400, 400]}
@@ -709,14 +711,14 @@ mod tests {
         assert!(String::from_utf8_lossy(&written[1])
             .starts_with("VER 1.00;\r\nGRID_SIZE 400.000000, 400.000000;\r\n\r\nROOM_ID 0;"));
         assert_eq!(written[2], files[2]);
-        let again = Layouts::read(&written, parts()).unwrap();
+        let again = Layouts::read(&written, parts(), &crate::limits::RETAIL).unwrap();
         assert_eq!(again.rooms(0)[2].cells, vec![vec![(3, 0)]]);
         assert_eq!(again.changes(&edit, "m").unwrap(), Vec::new());
     }
 
     #[test]
     fn mods_that_disagree_and_bad_rooms_are_refused() {
-        let layouts = Layouts::read(&sample(), parts()).unwrap();
+        let layouts = Layouts::read(&sample(), parts(), &crate::limits::RETAIL).unwrap();
         let one = layouts
             .changes(&json!({"layouts": [{"layout": "d01f01", "rooms": [{"room": 0, "rate": 1}]}]}), "a")
             .unwrap();
@@ -755,7 +757,7 @@ mod tests {
     fn a_room_past_a_file_without_rooms_is_refused_not_a_panic() {
         let mut files = sample();
         files[2] = b"VER 1.00;\r\n".to_vec();
-        let layouts = Layouts::read(&files, parts()).unwrap();
+        let layouts = Layouts::read(&files, parts(), &crate::limits::RETAIL).unwrap();
         let gap = layouts
             .changes(&json!({"layouts": [{"layout": LAYOUTS[2], "rooms": [{"room": 1, "cells": ["way00"]}]}]}), "m")
             .unwrap();
@@ -765,7 +767,7 @@ mod tests {
 
     #[test]
     fn a_member_of_the_wrong_shape_is_refused_not_ignored() {
-        let layouts = Layouts::read(&sample(), parts()).unwrap();
+        let layouts = Layouts::read(&sample(), parts(), &crate::limits::RETAIL).unwrap();
         let refused = |edit: Value| layouts.changes(&edit, "m").unwrap_err().to_string();
         let error = refused(json!({"layouts": [{"layout": "d01f01", "rooms": {"room": 0}}]}));
         assert_eq!(error, "layout d01f01: \"rooms\" is a list, not an object");
@@ -821,7 +823,7 @@ mod tests {
             ("way00", "room00", "door99")
         );
         assert_eq!((parts[80].kind, parts[80].link, parts[80].entrance), (0xA, 15, 1));
-        let layouts = Layouts::read(&files, parts).unwrap();
+        let layouts = Layouts::read(&files, parts, &crate::limits::RETAIL).unwrap();
         assert_eq!(layouts.write(), files);
         let json = layouts.to_json();
         assert_eq!(layouts.changes(&json, "m").unwrap(), Vec::new());
@@ -842,5 +844,23 @@ mod tests {
         assert_eq!(layouts.apply(&all).unwrap(), files);
         let rooms: usize = (0..LAYOUTS.len()).map(|index| layouts.rooms(index).len()).sum();
         eprintln!("{} room layouts in {} files round-trip", rooms, LAYOUTS.len());
+    }
+
+    #[test]
+    fn rooms_and_cells_are_bounded_by_the_profile() {
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let layouts = Layouts::read(&sample(), parts(), limits).unwrap();
+            let room =
+                |number: usize| json!({"layouts": [{"layout": "d01f01", "rooms": [{"room": number, "rate": 1}]}]});
+            let error = layouts.changes(&room(limits.layout_rooms), "m").unwrap_err().to_string();
+            assert!(error.contains(&format!("0 to {}", limits.layout_rooms - 1)), "{profile}: {error}");
+            let wide = ["way00"; 30].join(" ");
+            let rows = |count: usize| json!({"layouts": [{"layout": "d01f01", "rooms": [{"room": 0, "cells": vec![wide.clone(); count]}]}]});
+            let fits = limits.layout_cells / 30;
+            assert!(layouts.changes(&rows(fits), "m").is_ok(), "{profile}");
+            let error = layouts.changes(&rows(fits + 1), "m").unwrap_err().to_string();
+            assert!(error.contains(&format!("grid holds {}", limits.layout_cells)), "{profile}: {error}");
+        }
     }
 }

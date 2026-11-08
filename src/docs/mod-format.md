@@ -177,7 +177,7 @@ copies a zip in, `mod list` shows both kinds, and nothing needs unpacking.
   "engine": {"sources": ["engine/*.cpp", "engine/include/**"]},
   "port": {
     "sources": ["port/*.c"],
-    "api": "^1",
+    "api": "^2",
     "settings": {"render.scale": 2}
   },
 

@@ -370,8 +370,9 @@ pub enum To {
     Insert(Vec<u8>),
 }
 
-/// SPI_STACK_SIZE: the arguments one statement may have; PushStack drops the rest.
-pub const ARGS_MOST: usize = 64;
+/// SPI_STACK_SIZE: the arguments one statement may have; PushStack drops the rest. The retail
+/// value; a profile's is `limits::Limits::statement_args`.
+pub const ARGS_MOST: usize = crate::limits::RETAIL.statement_args;
 
 /// The text of a new statement: a line break (the file's, Script::newline), the tag and the
 /// arguments' texts.
@@ -406,7 +407,7 @@ pub fn block_text(newline: &str, statements: &[Statement]) -> Vec<u8> {
 /// list of its statement writes over with other text. Single arguments are changed first, by their
 /// places in the disc's statements, then lists, which may change how many arguments a statement
 /// has. An edit of a file, statement or argument the scripts lack is refused.
-pub fn apply_edits(scripts: &[Script], edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
+pub fn apply_edits(scripts: &[Script], edits: &[Edit], args_most: usize) -> Result<Vec<Vec<u8>>> {
     let mut scripts = scripts.to_vec();
     let mut done: BTreeMap<(usize, usize, usize), &Edit> = BTreeMap::new();
     let mut lists = Vec::new();
@@ -429,7 +430,7 @@ pub fn apply_edits(scripts: &[Script], edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
                 None => {
                     if let To::Insert(text) = &edit.to {
                         for statement in Script::parse(text)?.statements {
-                            check_arg_count(&edit.what, &statement)?;
+                            check_arg_count(&edit.what, &statement, args_most)?;
                         }
                     }
                     records.insert((edit.file, edit.what.as_str()), edit);
@@ -464,22 +465,23 @@ pub fn apply_edits(scripts: &[Script], edits: &[Edit]) -> Result<Vec<Vec<u8>>> {
         overwritten_args(&scripts, &done, list)?;
     }
     for edit in lists {
-        apply_list(&mut scripts[edit.file].statements[edit.statement], edit)?;
+        apply_list(&mut scripts[edit.file].statements[edit.statement], edit, args_most)?;
     }
     Ok(written(&scripts, &inserted))
 }
 
-/// Refuses a statement of more arguments than the engine reads.
-fn check_arg_count(what: &str, statement: &Statement) -> Result<()> {
-    if statement.args().len() > ARGS_MOST {
-        bail!("{what}: {} arguments; the engine reads at most {ARGS_MOST} a statement", statement.args().len());
+/// Refuses a statement of more arguments than the engine reads (`args_most`, the profile's
+/// SPI_STACK_SIZE).
+fn check_arg_count(what: &str, statement: &Statement, args_most: usize) -> Result<()> {
+    if statement.args().len() > args_most {
+        bail!("{what}: {} arguments; the engine reads at most {args_most} a statement", statement.args().len());
     }
     Ok(())
 }
 
 /// A list edit (To::Rest or To::Span) made in its statement, which may change how many arguments
 /// it has.
-fn apply_list(statement: &mut Statement, edit: &Edit) -> Result<()> {
+fn apply_list(statement: &mut Statement, edit: &Edit, args_most: usize) -> Result<()> {
     let pieces = |texts: &[Vec<u8>]| -> Vec<Piece> {
         texts.iter().map(|text| Piece { before: Vec::new(), text: text.clone(), after: Vec::new() }).collect()
     };
@@ -526,7 +528,7 @@ fn apply_list(statement: &mut Statement, edit: &Edit) -> Result<()> {
             first.before = b" ".to_vec();
         }
     }
-    check_arg_count(&edit.what, statement)
+    check_arg_count(&edit.what, statement, args_most)
 }
 
 /// The scripts' bytes, with the new statements after the statements they follow.
@@ -663,14 +665,17 @@ mod tests {
             edit(2, 1, To::Arg(b"500".to_vec()), "a"),
             edit(2, 1, To::Arg(b"500".to_vec()), "b"),
         ];
-        let written = apply_edits(std::slice::from_ref(&script), &edits).unwrap();
+        let written = apply_edits(std::slice::from_ref(&script), &edits, ARGS_MOST).unwrap();
         assert_eq!(written[0], b"SHOP 0,5;\r\nSHOP 33,7,8;\r\nPRICE 11, 500 ,225;\r\n");
-        let emptied = apply_edits(std::slice::from_ref(&script), &[edit(0, 1, list(&[]), "a")]).unwrap();
+        let emptied = apply_edits(std::slice::from_ref(&script), &[edit(0, 1, list(&[]), "a")], ARGS_MOST).unwrap();
         assert!(emptied[0].starts_with(b"SHOP 0;\r\n"));
-        let error =
-            apply_edits(&[script], &[edit(2, 1, To::Arg(b"1".to_vec()), "a"), edit(2, 1, To::Arg(b"2".to_vec()), "b")])
-                .unwrap_err()
-                .to_string();
+        let error = apply_edits(
+            &[script],
+            &[edit(2, 1, To::Arg(b"1".to_vec()), "a"), edit(2, 1, To::Arg(b"2".to_vec()), "b")],
+            ARGS_MOST,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("mod a and mod b"), "{error}");
     }
 
@@ -694,13 +699,13 @@ mod tests {
             edit(2, To::Insert(block.clone()), "weapon 2", "a"),
             edit(0, To::Arg(b"3".to_vec()), "count", "a"),
         ];
-        let written = apply_edits(std::slice::from_ref(&script), &edits).unwrap();
+        let written = apply_edits(std::slice::from_ref(&script), &edits, ARGS_MOST).unwrap();
         assert_eq!(
             String::from_utf8_lossy(&written[0]),
             "WEPNUM 3;\r\nWEP 1,2;\r\nWEP_BUILD 0;\r\nWEP 3,4;\r\nWEP 1,2;\r\nWEP_BUILD 0;\r\n// end\r\n"
         );
         let clash = [edit(2, new, "weapon 1", "a"), edit(2, To::Insert(block), "weapon 1", "b")];
-        let error = apply_edits(&[script], &clash).unwrap_err().to_string();
+        let error = apply_edits(&[script], &clash, ARGS_MOST).unwrap_err().to_string();
         assert!(error.contains("mod a and mod b"), "{error}");
     }
 
@@ -715,7 +720,8 @@ mod tests {
             what: "item 5 name".into(),
             module: "m".into(),
         };
-        let refused = |edit: Edit| apply_edits(std::slice::from_ref(&script), &[edit]).unwrap_err().to_string();
+        let refused =
+            |edit: Edit| apply_edits(std::slice::from_ref(&script), &[edit], ARGS_MOST).unwrap_err().to_string();
         assert_eq!(refused(edit(0, 0, 1)), "item 5 name: MES_SYS has no argument 1");
         assert_eq!(refused(edit(0, 3, 0)), "item 5 name: the file has no statement 3");
         assert_eq!(refused(edit(2, 0, 0)), "item 5 name: there is no file 2 (of 1)");
@@ -733,7 +739,7 @@ mod tests {
             module: module.into(),
         };
         let texts = |items: &[&str]| items.iter().map(|item| item.as_bytes().to_vec()).collect::<Vec<_>>();
-        let apply = |edits: &[Edit]| apply_edits(std::slice::from_ref(&script), edits);
+        let apply = |edits: &[Edit]| apply_edits(std::slice::from_ref(&script), edits, ARGS_MOST);
         // the list from argument 1 puts 7 at argument 2, where the single edit puts 8
         let rest = edit(0, 1, To::Rest(texts(&["5", "7"])), "a");
         let error = apply(&[edit(0, 2, To::Arg(b"8".to_vec()), "b"), rest.clone()]).unwrap_err().to_string();
@@ -756,7 +762,30 @@ mod tests {
             |to: To, arg: usize| Edit { file: 0, statement: 0, arg, to, what: "recipe".into(), module: "m".into() };
         let span = To::Span(vec![b"1".to_vec(), b"2".to_vec()], 5);
         let edits = [edit(span, 4), edit(To::Arg(b"7".to_vec()), 9)];
-        let written = apply_edits(std::slice::from_ref(&script), &edits).unwrap();
+        let written = apply_edits(std::slice::from_ref(&script), &edits, ARGS_MOST).unwrap();
         assert_eq!(written[0], b"DATASET 309,4,11,12,1,2,0,7,-10.4,0.72,0;\r\n");
+    }
+
+    #[test]
+    fn a_statements_arguments_are_bounded_alike_in_both_profiles() {
+        let script = Script::parse(b"SHOP 0,1;\r\n").unwrap();
+        for profile in crate::limits::Profile::ALL {
+            let most = profile.limits().statement_args;
+            let text = |count: usize| {
+                format!("SHOP {};\r\n", (0..count).map(|i| i.to_string()).collect::<Vec<_>>().join(",")).into_bytes()
+            };
+            let insert = |count: usize| Edit {
+                file: 0,
+                statement: 0,
+                arg: 0,
+                to: To::Insert(text(count)),
+                what: "shop".into(),
+                module: "m".into(),
+            };
+            assert!(apply_edits(std::slice::from_ref(&script), &[insert(most)], most).is_ok(), "{profile}");
+            let error = apply_edits(std::slice::from_ref(&script), &[insert(most + 1)], most).unwrap_err().to_string();
+            assert!(error.contains(&format!("at most {most} a statement")), "{profile}: {error}");
+            assert_eq!(most, ARGS_MOST, "SPI_STACK_SIZE is 64 in {profile}");
+        }
     }
 }

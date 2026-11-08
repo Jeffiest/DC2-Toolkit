@@ -19,7 +19,8 @@ use dc2tk_script::{
 use super::{
     default_constants, joined, launch, mod_folders, new_music_lines, reached_lines, require_target, resolved, shown,
 };
-use crate::options::{Common, ModsDir, Tools};
+use crate::options::{Common, LimitsArg, ModsDir, Tools};
+use dc2tk_assets::limits::Profile;
 use dc2tk_script::manifest::Target;
 
 #[derive(Args)]
@@ -79,6 +80,8 @@ pub struct BuildArgs {
     #[arg(long, requires = "native")]
     movies: bool,
     #[command(flatten)]
+    limits: LimitsArg,
+    #[command(flatten)]
     common: Common,
 }
 
@@ -120,6 +123,7 @@ pub fn run_build(args: &BuildArgs) -> Result<ExitCode> {
     }
     let mut tools = args.common.tools()?;
     let mod_dirs = chosen_mods(args)?;
+    println!("limits {}", args.limits.limits().describe());
     if args.native.is_some() {
         require_target(&mod_dirs, Target::Native)?;
     }
@@ -233,6 +237,7 @@ pub fn build_native_binary(
     set: &Path,
     mods: &ModsDir,
     common: &Common,
+    profile: Profile,
     output: &Path,
 ) -> Result<()> {
     let args = BuildArgs {
@@ -252,6 +257,7 @@ pub fn build_native_binary(
         executable: None,
         native: Some(Some(output.to_path_buf())),
         movies: true,
+        limits: LimitsArg::of(profile),
         common: common.clone(),
     };
     run_build(&args).map(|_| ())
@@ -272,6 +278,7 @@ pub fn built_game_files(
     set: Option<&Path>,
     mods: &ModsDir,
     common: &Common,
+    profile: Profile,
 ) -> Result<(Files, bool)> {
     let args = BuildArgs {
         source: source.to_path_buf(),
@@ -290,6 +297,7 @@ pub fn built_game_files(
         executable: None,
         native: None,
         movies: false,
+        limits: LimitsArg::of(profile),
         common: common.clone(),
     };
     let mut tools = args.common.tools()?;
@@ -533,7 +541,7 @@ fn game_files(args: &BuildArgs, tools: &Tools, planned: &Planned, found: &build:
         }
     }
     let (files, map_changes) = maps(args, tools, planned, &files)?;
-    let data = datatables::apply_data(disc, mod_dirs, &files, &english.slots)?;
+    let data = datatables::apply_data(disc, mod_dirs, &files, &english.slots, args.limits.limits())?;
     for change in &data.changes {
         for line in datatables::described(change) {
             println!("  {line}");
@@ -550,7 +558,7 @@ fn maps(args: &BuildArgs, tools: &Tools, planned: &Planned, files: &Files) -> Re
     let program_of = |line: &replace::Line, value: &serde_json::Value| {
         mapscript::program_number(value, &line.module, &planned.plan.numbers, &planned.consts)
     };
-    let maps = mapedit::apply_maps(&args.disc, &planned.mod_dirs, files, &program_of)?;
+    let maps = mapedit::apply_maps(&args.disc, &planned.mod_dirs, files, &program_of, args.limits.limits())?;
     for line in &maps.said {
         println!("{line}");
     }
@@ -593,7 +601,7 @@ fn memory_check(args: &BuildArgs, files: &Files) -> Result<bool> {
     let original = dc2tk_disc::DiscSource::open(&args.disc)?;
     let modded = memory::Overlay::new(&original, files);
     let changed: Vec<String> = files.keys().cloned().collect();
-    let findings = memory::check(&original, &modded, &changed);
+    let findings = memory::check(&original, &modded, &changed, args.limits.limits());
     for item in &findings {
         let label = match item.level {
             memory::Level::Error => "error",

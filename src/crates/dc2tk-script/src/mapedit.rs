@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde_json::Value;
 
+use dc2tk_assets::limits::Limits;
 use dc2tk_assets::map_export::ModelPack;
 use dc2tk_assets::to_gltf::TextureSearch;
 use dc2tk_assets::{info_cfg, map_edit, map_import, textures};
@@ -156,12 +157,14 @@ fn new_map_path(path: &str, like: &MapFiles, name: &str) -> String {
 /// model packs. A map: line under "add" makes a new map of its like map's files (docs/modding/maps.md,
 /// "A map of a mod's own"): each written under the new name, the scene's edits made in the copies, a row
 /// appended to every language's map table. `files` holds what the build already rewrote, by
-/// DATA.DAT path; `program_of` gives the number of a program a line's "programs" names.
+/// DATA.DAT path; `program_of` gives the number of a program a line's "programs" names; `limits`
+/// is the profile the maps' placements are checked against.
 pub fn apply_maps(
     iso: &Path,
     mod_dirs: &[PathBuf],
     files: &Files,
     program_of: &dyn Fn(&Line, &Value) -> Result<i64>,
+    limits: &Limits,
 ) -> Result<MapsBuilt> {
     let lines: Vec<Line> = replace::all_lines(mod_dirs)?.into_iter().filter(Line::is_map).collect();
     let mut built = MapsBuilt { files: files.clone(), changes: Vec::new(), said: Vec::new() };
@@ -170,7 +173,7 @@ pub fn apply_maps(
     }
     let disc = DiscSource::open(iso)?;
     for line in &lines {
-        apply_map(&disc, line, program_of, &mut built)
+        apply_map(&disc, line, program_of, &mut built, limits)
             .with_context(|| format!("{} (mod {})", line.key, line.module))?;
     }
     let new_maps = maptable::new_maps(&lines)?;
@@ -186,6 +189,7 @@ fn apply_map(
     line: &Line,
     program_of: &dyn Fn(&Line, &Value) -> Result<i64>,
     built: &mut MapsBuilt,
+    limits: &Limits,
 ) -> Result<()> {
     let name = line.map_name();
     let source = if line.add { line.like().unwrap_or_default().to_string() } else { name.clone() };
@@ -239,7 +243,7 @@ fn apply_map(
     // a new map's placements yet); every other map keeps their slots, hidden
     let compact = matches!(line.kind, LineKind::Map { compact: true, .. });
     let slots = if line.add && compact { map_edit::Slots::Compact } else { map_edit::Slots::Keep };
-    let mut imported = map_import::import_map(&gltf, &read, &original, &packs, &search, slots)?;
+    let mut imported = map_import::import_map(&gltf, &read, &original, &packs, &search, slots, limits)?;
     for note in &imported.notes {
         built.said.push(format!("note: {} (mod {}): {note}", line.key, line.module));
     }
@@ -676,7 +680,8 @@ mod tests {
         crate::manifest::create(&mod_dir, Some("test.plain")).unwrap();
         let files = Files::from([("map/t01.stb".to_string(), vec![1, 2])]);
         let no_program = |_: &Line, _: &Value| -> Result<i64> { unreachable!() };
-        let built = apply_maps(&folder.join("no.iso"), &[mod_dir], &files, &no_program).unwrap();
+        let built =
+            apply_maps(&folder.join("no.iso"), &[mod_dir], &files, &no_program, &dc2tk_assets::limits::RETAIL).unwrap();
         fs::remove_dir_all(&folder).unwrap();
         assert_eq!(built.files, files);
         assert!(built.changes.is_empty() && built.said.is_empty());

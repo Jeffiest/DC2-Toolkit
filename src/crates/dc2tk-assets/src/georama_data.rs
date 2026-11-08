@@ -18,6 +18,7 @@ use serde_json::Value;
 
 use crate::cfg_text::{Arg, Script};
 use crate::data_table::{self, Adding, Kind, Place, Record, Table, S32};
+use crate::limits::Limits;
 use crate::{lang, Result};
 
 pub const TOWNS: usize = 5;
@@ -26,17 +27,12 @@ pub const LANGUAGES: usize = 7;
 pub const LABELS: usize = lang::ENGLISH;
 /// EDIT_PARTS_MATERIAL_MAX.
 pub const MATERIALS_MOST: usize = 4;
-/// GEORAMA_PARTS_LIST_MAX: the editor's lists (placed, stock, make) hold 0x180 parts, and
-/// MakeDownLoadAnaunce goes over the first 0x180 definitions.
-pub const PARTS_MOST: usize = 0x180;
 /// The stock list (CMenuGeorama::UpdateGeoramaPartsList) goes over IDs 0 to 0x7F; the save's
 /// stock (CSaveData::build_parts_num[0x100]) is by ID for all towns: a part of the ID of another
 /// town's part shares its stock, as the towns' own houses and fences do.
 pub const PART_ID_MOST: i64 = 0x7F;
 /// GEORAMA_PARTS_LIST_ITEM's name[0x30], filled by strcpy.
 pub const NAME_MOST: usize = 0x2F;
-/// CEditMap::CreateTable(main_data, 0x100, ...): the parts placed in a town.
-pub const PLACED_MOST: usize = 0x100;
 /// The most bytes of g01's parts files: MakeDownLoadAnaunce reads each into a 0x7800-byte stack
 /// buffer aligned to 64 bytes first, which loses at most 0x30 of it from a 16-byte-aligned stack
 /// (the bound docs/game/data.md gives, 0x77D0). item_data::SCRIPT_BUFFER allows for 0x40, the
@@ -100,12 +96,15 @@ fn blocks(script: &Script) -> Blocks {
     out
 }
 
-pub fn read(files: &[Vec<u8>]) -> Result<Table> {
+/// The table, within `limits`: `georama_parts` (GEORAMA_PARTS_LIST_MAX, the editor's lists of
+/// parts, and the definitions MakeDownLoadAnaunce goes over) and `georama_placed` (the parts
+/// CEditMap::CreateTable places in a town).
+pub fn read(files: &[Vec<u8>], limits: &Limits) -> Result<Table> {
     let scripts = data_table::parse_all(&paths(), files)?;
     let parts: Vec<Record> = (0..TOWNS).flat_map(|number| town_parts(&scripts, number)).collect();
     let [fixed, starting] = placed_parts(&scripts);
     let rivers = river_sections(&scripts);
-    let mut table = Table::new("a Georama table", scripts, Vec::new());
+    let mut table = Table::new_with("a Georama table", scripts, Vec::new(), limits);
     let count_of = |table: &Table, tag: &str, files: std::ops::Range<usize>| -> Vec<(usize, usize, usize)> {
         files.filter_map(|file| data_table::tagged(&table.scripts[file], tag).last().map(|&at| (file, at, 0))).collect()
     };
@@ -113,8 +112,8 @@ pub fn read(files: &[Vec<u8>]) -> Result<Table> {
     table.section("parts", &["town", "part"], parts);
     table.adding(Adding {
         counts: count_of(&table, "EDIT_PARTS_NUM", 0..TOWNS * LANGUAGES),
-        most: PARTS_MOST,
-        why: "GEORAMA_PARTS_LIST_MAX, the editor's lists of parts",
+        most: limits.georama_parts,
+        why: "GEORAMA_PARTS_LIST_MAX, the editor's lists of parts".into(),
         key_args: vec![("part", "ID", 0, Kind::Int(0, PART_ID_MOST))],
         label_args: vec![("name", "EDIT_PARTS", 0, NAME_MOST), ("comment", "PARTS_COMMENT", 0, 0xFF)],
         languages,
@@ -128,8 +127,8 @@ pub fn read(files: &[Vec<u8>]) -> Result<Table> {
         table.section(name, &["town", "number"], records);
         table.adding(Adding {
             counts,
-            most: PLACED_MOST,
-            why: "the parts placed in a town (CEditMap::CreateTable)",
+            most: limits.georama_placed,
+            why: "the parts placed in a town (CEditMap::CreateTable)".into(),
             place: Some("number"),
             ..Adding::default()
         });
@@ -337,14 +336,14 @@ mod tests {
         let corpus = dc2tk_disc::samples::corpus();
         let root = std::path::Path::new(&corpus);
         let files: Vec<Vec<u8>> = paths().iter().map(|path| std::fs::read(root.join(path)).unwrap()).collect();
-        let table = read(&files).unwrap();
+        let table = read(&files, &crate::limits::RETAIL).unwrap();
         assert_eq!(table.write(), files);
         assert_eq!(table.check(), Vec::<String>::new());
         let first = table.to_json()["parts"][0].clone();
         let edit = json!({"parts": [{"town": first["town"], "part": first["part"], "max": 99,
             "materials": [{"item": 210, "count": 1}]}]});
         let (edits, _) = table.changes(&edit, "m").unwrap();
-        let again = read(&table.apply(&edits).unwrap()).unwrap();
+        let again = read(&table.apply(&edits).unwrap(), &crate::limits::RETAIL).unwrap();
         for language in 0..LANGUAGES {
             let text = String::from_utf8_lossy(&again.write()[language]).into_owned();
             assert!(text.contains("MAX_NUM 99") || text.contains("MAX_NUM  99"), "language {language}");
@@ -363,7 +362,7 @@ mod tests {
             "comment": "A new hut.", "max": 3}]});
         let (edits, _) = table.changes(&new, "m").unwrap();
         let written = table.apply(&edits).unwrap();
-        let again = read(&written).unwrap();
+        let again = read(&written, &crate::limits::RETAIL).unwrap();
         let part =
             again.to_json()["parts"].as_array().unwrap().iter().find(|part| part["part"] == free).unwrap().clone();
         assert_eq!((&part["name"], &part["max"], &part["model"]), (&json!("New Hut"), &json!(3), &first["model"]));
@@ -396,7 +395,7 @@ mod tests {
         let written = table.apply(&edits).unwrap();
         let config = String::from_utf8_lossy(&written[TOWNS * LANGUAGES]).into_owned();
         assert!(config.contains(&format!("INIT_EPARTS_START {};", starts + 1)), "{config}");
-        let again = read(&written).unwrap().to_json();
+        let again = read(&written, &crate::limits::RETAIL).unwrap().to_json();
         let added =
             again["starting_parts"].as_array().unwrap().iter().rfind(|part| part["town"] == "g01").unwrap().clone();
         assert_eq!(added["position"], json!([1.5, 0, 2]));
@@ -414,5 +413,24 @@ mod tests {
             table.sections[1].records.len(),
             table.sections[2].records.len()
         );
+    }
+
+    #[test]
+    fn the_georama_tables_limits_are_the_profiles() {
+        for profile in crate::limits::Profile::ALL {
+            let limits = profile.limits();
+            let files = vec![b"// nothing\r\n".to_vec(); paths().len()];
+            let table = read(&files, limits).unwrap();
+            let most: Vec<(&str, usize)> = table
+                .sections
+                .iter()
+                .filter_map(|section| section.adding.as_ref().map(|adding| (section.name.as_str(), adding.most)))
+                .collect();
+            assert!(most.contains(&("parts", limits.georama_parts)), "{profile}: {most:?}");
+            for placed in ["fixed_parts", "starting_parts"] {
+                assert!(most.contains(&(placed, limits.georama_placed)), "{profile}: {most:?}");
+            }
+            assert_eq!(table.capacity, *limits);
+        }
     }
 }

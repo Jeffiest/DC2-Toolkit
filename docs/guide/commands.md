@@ -15,6 +15,7 @@ Run `dc2tk help <command>` to see all options for any command.
 | `dc2tk build extracted/scripts dc2.iso -o test.iso --mod local.mymod --play` | Build with a mod and launch the ISO in PCSX2. |
 | `dc2tk build extracted/scripts dc2.iso -o test.iso --start-at s51:story_50` | Build an ISO where **New Game** jumps directly to map `s51` at program `story_50`. |
 | `dc2tk build extracted/scripts dc2.iso --dry-run --mod local.mymod` | Validate that a mod compiles and fits in memory without writing an ISO file. |
+| `dc2tk build extracted/scripts dc2.iso --dry-run --mod local.mymod --limits port` | Check the mod against the raised native engine's capacity limits instead of the PS2 game's (see [Capacity Limits](limits.md)); `--limits` goes on `mod check`, `mod build`, `mod watch` and `play --native` too. |
 | `dc2tk build extracted/scripts dc2.iso -o modded.iso --pak other-mod-1.0.0.dc2pak` | Put a built mod on the image; repeat `--pak` for more (see [Playing built mods](mods.md#playing-built-mods)). |
 | `dc2tk build extracted/scripts dc2.iso -o modded.iso --set my-game.json` | Build the mods a [mod set](mods.md#mod-sets) chooses, with its settings; its numbers go in `my-game.lock`. |
 | `dc2tk play modded.iso` | Launch an ISO in PCSX2 (skips PS2 boot logos; pass `--full-boot` to keep them). |
@@ -112,7 +113,7 @@ The first build makes the container image, which takes a while; later builds reu
 | `dc2tk mod new extracted/scripts <name> [<file>...] [--id author.name]` | Start a mod in `mods/<name>/` with its `mod.json`, copying any whole script files given into its `files/` (listed under `"scripts": {"whole"}`). |
 | `dc2tk mod save extracted/scripts <name>` | Copy every script file edited or added in `extracted/scripts` into `mods/<name>/`. |
 | `dc2tk mod override extracted/scripts <name> --map s51 <func>` | Create a patch in `mods/<name>/` that overrides `<func>` (also accepts `--monster`, `--script`, or `--library`). |
-| `dc2tk mod check extracted/scripts <id>...` | Compile and validate a mod without building an ISO (pass `--disc dc2.iso` to also check assets and data tables). |
+| `dc2tk mod check extracted/scripts <id>...` | Compile and validate a mod without building an ISO (pass `--disc dc2.iso` to also check assets and data tables; `--limits port` for the raised engine's [capacity limits](limits.md)). |
 | `dc2tk mod test extracted/scripts <id>` | Run unit tests in the mod's `tests.c` inside the built-in script VM. |
 | `dc2tk mod list extracted/scripts` | List all mods in `mods/`, their patches, and allocated IDs. |
 | `dc2tk mod slim extracted/scripts <name>` | Convert full-file script copies in a mod into small function patches. |
@@ -182,3 +183,4 @@ Pass `--start-at <target>` to `dc2tk build` (or set `"dev": {"start_at": ...}` i
 | `dc2tk verify extracted/disc` | Verify that all 1,398 retail scripts decompile and recompile byte-for-byte (`--json <file>` writes the full report). |
 | `dc2tk defs learn` / `check` / `todo` / `rename` / `disc` | Maintain the decompiler's naming definitions (see [definitions/README.md](../../definitions/README.md)). |
 | `dc2tk natives` / `dc2tk api-docs` | Regenerate the native tables and the [API Reference](../scripting/api/README.md). |
+| `dc2tk limits [--json]` | List the [capacity limits](limits.md) content is checked against, in both profiles (`--json` writes the Blender add-on's `limits.json`). |

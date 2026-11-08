@@ -14,6 +14,7 @@ use dc2tk_script::{datatables, disc, discfiles, loads, mapscript, maptable, mods
 
 use super::{default_constants, mod_folders, new_music_lines, reached_lines, resolved};
 use crate::options::{Common, ModsDir, Tools};
+use dc2tk_assets::limits::Limits;
 
 pub fn run_mod_check(
     source: &Path,
@@ -22,7 +23,9 @@ pub fn run_mod_check(
     disc: Option<&Path>,
     native: bool,
     common: &Common,
+    limits: &Limits,
 ) -> Result<ExitCode> {
+    println!("limits {}", limits.describe());
     let mut tools = common.tools()?;
     let mod_dirs = mod_folders(mods_dir.path(), names)?;
     for mod_dir in &mod_dirs {
@@ -52,7 +55,7 @@ pub fn run_mod_check(
     }
     let lines = replace::all_lines(&mod_dirs)?;
     let (added, edited_executable) = match disc {
-        Some(disc) => assets_on_disc(disc, &mod_dirs, &lines, &raw, common)?,
+        Some(disc) => assets_on_disc(disc, &mod_dirs, &lines, &raw, common, limits)?,
         None => (assets_without_disc(&mod_dirs, &lines)?, None),
     };
     if let Some(prepared) = &prepared {
@@ -116,6 +119,7 @@ fn assets_on_disc(
     lines: &[replace::Line],
     raw: &discfiles::Wanted,
     common: &Common,
+    limits: &Limits,
 ) -> Result<(ModConstants, Option<Vec<u8>>)> {
     let (resolved, _) = resolved(mod_dirs, disc, &common.def_sets())?;
     let clashes = replace::clashes(&resolved, raw);
@@ -140,7 +144,7 @@ fn assets_on_disc(
     }
     let item_letters = datatables::english_item_letters(disc, mod_dirs)?;
     let english = replace::english_letters(disc, &resolved, item_letters)?;
-    let data = datatables::apply_data(disc, mod_dirs, &Default::default(), &english.slots)?;
+    let data = datatables::apply_data(disc, mod_dirs, &Default::default(), &english.slots, limits)?;
     for change in &data.changes {
         for line in datatables::described(change) {
             println!("{line}");

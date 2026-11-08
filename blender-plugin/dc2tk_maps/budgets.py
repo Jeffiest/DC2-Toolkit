@@ -4,7 +4,7 @@ the last Preview Changes (dc2tk build --dry-run, whose memory check is the engin
 import bpy
 import numpy
 
-from . import c2data, outliner, schema
+from . import c2data, limits, outliner, schema
 
 PREVIEW_TEXT = "dc2tk preview"
 
@@ -110,12 +110,12 @@ def figures(root):
 
 def draw(layout, context, root):
     name = c2data.map_name(root)
-    dungeon = name.startswith("d")
     found = figures(root)
     slots, new = found["slots"]
+    profile = limits.profile(context)
     box = layout.box()
-    meter(box, "Placements", slots, schema.PLACEMENT_LIMIT_DUNGEON if dungeon else schema.PLACEMENT_LIMIT,
-          "(%d new)" % new if new else "")
+    box.label(text="Limits: " + limits.describe(profile), icon="PREFERENCES")
+    meter(box, "Placements", slots, limits.placements(name, profile), "(%d new)" % new if new else "")
     models = found["models"]
     meter(box, "New models", len(models), 0, "(a pack holds %d)" % schema.PACK_MODELS)
     pictures = found["pictures"]
