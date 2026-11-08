@@ -1,0 +1,251 @@
+{
+ "gauntlet_version": 1,
+ "created": "2026-11-08T04:26:32+00:00",
+ "host": {
+  "hostname": "vm",
+  "os": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+  "machine": "x86_64",
+  "cpus": 4,
+  "memory_gb": 15.7,
+  "python": "3.13.18"
+ },
+ "repos": {
+  "DC2-Toolkit": {
+   "path": "/home/user/DC2-Toolkit",
+   "present": true,
+   "git": true,
+   "head": "b5dc75ee755eb5ad5264d1bf2ab52426fb43a4d8",
+   "branch": "claude/dark-cloud-2-engine-yr3rlk",
+   "dirty": true
+  },
+  "ChronicleTwo": {
+   "path": "/home/user/ChronicleTwo",
+   "present": true,
+   "git": true,
+   "head": "58dd0868a899bd5e97a12ccd8629466c403cf34f",
+   "branch": "claude/dark-cloud-2-engine-yr3rlk",
+   "dirty": true
+  }
+ },
+ "arguments": [
+  "--stage",
+  "env",
+  "--stage",
+  "clippy",
+  "--stage",
+  "cargo-test",
+  "--stage",
+  "port-tests",
+  "--update-baseline",
+  "--keep-going",
+  "--report-dir",
+  "tools/gauntlet/report/baseline-linux-x86_64"
+ ],
+ "options": {
+  "update_baseline": true,
+  "timeout": 3600,
+  "iso": null,
+  "keep_going": true
+ },
+ "stages": [
+  {
+   "name": "env",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 0.05,
+   "summary": "9 checks; optional absent: dc2-debug, disc",
+   "command": "python3 -I tools/gauntlet/run.py --stage env",
+   "log": null,
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/env/env.json",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/env/env.txt"
+   ],
+   "baseline": null,
+   "details": {
+    "checks": [
+     {
+      "name": "rustc",
+      "required": true,
+      "ok": true,
+      "detail": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+     },
+     {
+      "name": "cargo",
+      "required": true,
+      "ok": true,
+      "detail": "cargo 1.99.1 (5f94df478 2026-08-27)"
+     },
+     {
+      "name": "clang",
+      "required": true,
+      "ok": true,
+      "detail": "Ubuntu clang version 20.1.8 (++20250804090239+87f0227cb601-1~exp1~20250804210352.139) (PATH has /opt/clang20/bin first)"
+     },
+     {
+      "name": "sdl3",
+      "required": false,
+      "ok": true,
+      "detail": "3.4.18"
+     },
+     {
+      "name": "python",
+      "required": true,
+      "ok": true,
+      "detail": "3.13.18"
+     },
+     {
+      "name": "workspace",
+      "required": true,
+      "ok": true,
+      "detail": "/home/user/DC2-Toolkit/src/Cargo.toml"
+     },
+     {
+      "name": "port-sdk",
+      "required": false,
+      "ok": true,
+      "detail": "/home/user/DC2-Toolkit/build/port/sdk"
+     },
+     {
+      "name": "dc2-debug",
+      "required": false,
+      "ok": false,
+      "detail": "/home/user/DC2-Toolkit/build/port/dc2-debug absent (tools/port.py builds it); the disc stages will not run"
+     },
+     {
+      "name": "disc",
+      "required": false,
+      "ok": false,
+      "detail": "no dc2.iso at the root, DC2_ISO or --iso: the disc stages will not run"
+     }
+    ]
+   }
+  },
+  {
+   "name": "clippy",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 41.46,
+   "summary": "4 crate(s), 1 lint(s); 0 new, 1 known, 0 fixed against linux-x86_64.json (baseline rewritten: 1 were new, 0 fixed before)",
+   "command": "(cd src && cargo clippy --release -p dc2tk-disc --no-deps --all-targets -- -D warnings) ; (cd src && cargo clippy --release -p dc2tk-script --no-deps --all-targets -- -D warnings) ; (cd src && cargo clippy --release -p dc2tk-assets --no-deps --all-targets -- -D warnings) ; (cd src && cargo clippy --release -p dc2tk --no-deps --all-targets -- -D warnings)",
+   "log": null,
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/clippy/dc2tk-disc.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/clippy/dc2tk-script.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/clippy/dc2tk-assets.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/clippy/dc2tk.log"
+   ],
+   "baseline": {
+    "new": [],
+    "known": [
+     "dc2tk-assets::single_element_loop@crates/dc2tk-assets/src/map_export.rs"
+    ],
+    "fixed": [],
+    "unseen": [],
+    "has_baseline": true,
+    "written": "/home/user/DC2-Toolkit/tools/gauntlet/baselines/linux-x86_64.json",
+    "before_rewrite": {
+     "new": [
+      "dc2tk-assets::single_element_loop@crates/dc2tk-assets/src/map_export.rs"
+     ],
+     "known": [],
+     "fixed": [],
+     "has_baseline": false
+    }
+   },
+   "details": {
+    "counts": {
+     "crates": 4,
+     "lints": 1,
+     "did_not_compile": 0
+    },
+    "lints": [
+     "dc2tk-assets::single_element_loop@crates/dc2tk-assets/src/map_export.rs"
+    ]
+   }
+  },
+  {
+   "name": "cargo-test",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 982.24,
+   "summary": "784 tests in 4 crates: 783 passed, 1 failed, 36 ignored; 0 new, 1 known, 0 fixed against linux-x86_64.json (baseline rewritten: 1 were new, 0 fixed before)",
+   "command": "(cd src && cargo test --release -p dc2tk-disc) ; (cd src && cargo test --release -p dc2tk-script) ; (cd src && cargo test --release -p dc2tk-assets) ; (cd src && cargo test --release -p dc2tk)",
+   "log": null,
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/cargo-test/dc2tk-disc.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/cargo-test/dc2tk-script.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/cargo-test/dc2tk-assets.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/cargo-test/dc2tk.log"
+   ],
+   "baseline": {
+    "new": [],
+    "known": [
+     "dc2tk-assets::limits::tests::the_port_profile_holds_the_headers_values_and_retail_where_the_engine_keeps_it"
+    ],
+    "fixed": [],
+    "unseen": [],
+    "has_baseline": true,
+    "written": "/home/user/DC2-Toolkit/tools/gauntlet/baselines/linux-x86_64.json",
+    "before_rewrite": {
+     "new": [
+      "dc2tk-assets::limits::tests::the_port_profile_holds_the_headers_values_and_retail_where_the_engine_keeps_it"
+     ],
+     "known": [],
+     "fixed": [],
+     "has_baseline": false
+    }
+   },
+   "details": {
+    "counts": {
+     "total": 784,
+     "passed": 783,
+     "failed": 1,
+     "ignored": 36,
+     "did_not_compile": 0
+    },
+    "failures": [
+     "dc2tk-assets::limits::tests::the_port_profile_holds_the_headers_values_and_retail_where_the_engine_keeps_it"
+    ]
+   }
+  },
+  {
+   "name": "port-tests",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 24.36,
+   "summary": "23 native checks: 23 passed, 0 failed; 0 new, 0 known, 0 fixed against linux-x86_64.json (baseline rewritten: 0 were new, 0 fixed before)",
+   "command": "PATH=/opt/clang20/bin:$PATH /usr/local/bin/python3 -I port/tests/run.py",
+   "log": "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/port-tests/port-tests.log",
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/baseline-linux-x86_64/port-tests/port-tests.log"
+   ],
+   "baseline": {
+    "new": [],
+    "known": [],
+    "fixed": [],
+    "unseen": [],
+    "has_baseline": true,
+    "written": "/home/user/DC2-Toolkit/tools/gauntlet/baselines/linux-x86_64.json",
+    "before_rewrite": {
+     "new": [],
+     "known": [],
+     "fixed": [],
+     "has_baseline": false
+    }
+   },
+   "details": {
+    "counts": {
+     "total": 23,
+     "passed": 23,
+     "failed": 0,
+     "iso": false
+    },
+    "failures": []
+   }
+  }
+ ],
+ "verdict": "pass",
+ "exit_code": 0,
+ "repository": "DC2-Toolkit",
+ "baseline": "/home/user/DC2-Toolkit/tools/gauntlet/baselines/linux-x86_64.json"
+}

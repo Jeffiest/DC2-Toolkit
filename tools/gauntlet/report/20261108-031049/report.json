@@ -1,0 +1,115 @@
+{
+ "gauntlet_version": 1,
+ "created": "2026-11-08T03:10:49+00:00",
+ "host": {
+  "hostname": "vm",
+  "os": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+  "machine": "x86_64",
+  "cpus": 4,
+  "memory_gb": 15.7,
+  "python": "3.13.18"
+ },
+ "repos": {
+  "DC2-Toolkit": {
+   "path": "/home/user/DC2-Toolkit",
+   "present": true,
+   "git": true,
+   "head": "b5dc75ee755eb5ad5264d1bf2ab52426fb43a4d8",
+   "branch": "claude/dark-cloud-2-engine-yr3rlk",
+   "dirty": true
+  },
+  "ChronicleTwo": {
+   "path": "/home/user/ChronicleTwo",
+   "present": true,
+   "git": true,
+   "head": "cb6ae0f3ab9d292ce1270ee9fd01ddc2e596ac34",
+   "branch": "claude/dark-cloud-2-engine-yr3rlk",
+   "dirty": true
+  }
+ },
+ "arguments": [
+  "--stage",
+  "env",
+  "--stage",
+  "fmt"
+ ],
+ "options": {
+  "update_baseline": false,
+  "timeout": 3600,
+  "iso": null,
+  "keep_going": false
+ },
+ "stages": [
+  {
+   "name": "env",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 0.22,
+   "summary": "6 checks",
+   "command": "python3 -I tools/gauntlet/run.py --stage env",
+   "log": null,
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/20261108-031049/env/env.json"
+   ],
+   "baseline": null,
+   "details": {
+    "checks": [
+     {
+      "name": "rustc",
+      "required": true,
+      "ok": true,
+      "detail": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+     },
+     {
+      "name": "cargo",
+      "required": true,
+      "ok": true,
+      "detail": "cargo 1.99.1 (5f94df478 2026-08-27)"
+     },
+     {
+      "name": "clang",
+      "required": true,
+      "ok": true,
+      "detail": "Ubuntu clang version 18.1.3 (1ubuntu1)"
+     },
+     {
+      "name": "sdl3",
+      "required": false,
+      "ok": true,
+      "detail": "3.4.18"
+     },
+     {
+      "name": "python",
+      "required": true,
+      "ok": true,
+      "detail": "3.13.18"
+     },
+     {
+      "name": "workspace",
+      "required": true,
+      "ok": true,
+      "detail": "/home/user/DC2-Toolkit/src/Cargo.toml"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fmt",
+   "gate": "G0",
+   "status": "fail",
+   "duration_s": 1.56,
+   "summary": "cargo fmt --check wants changes: \u001b[m\u000f             assert_eq!(imported.models.len(), 1, \"{name}: one model, however many pieces show it\");\n             assert!(\n                 imported.notes.iter().any(|note| note.contains(\"edited differently\")),",
+   "command": "cargo fmt --all -- --check",
+   "log": "/home/user/DC2-Toolkit/tools/gauntlet/report/20261108-031049/fmt/fmt.log",
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/20261108-031049/fmt/fmt.log"
+   ],
+   "baseline": null,
+   "details": {}
+  }
+ ],
+ "verdict": "fail",
+ "exit_code": 1,
+ "repository": "DC2-Toolkit",
+ "baseline": "/home/user/DC2-Toolkit/tools/gauntlet/baselines/linux-x86_64.json"
+}

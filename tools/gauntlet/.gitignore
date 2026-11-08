@@ -1,0 +1,9 @@
+.cache/
+# Report directories are evidence: each run's small report.json, report.md and env/ are kept; the logs
+# beside them are not (GAUNTLET.md).
+report/*
+!report/*/
+report/*/*
+!report/*/report.json
+!report/*/report.md
+!report/*/env/

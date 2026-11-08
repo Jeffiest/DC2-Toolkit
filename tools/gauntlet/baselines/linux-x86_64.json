@@ -1,0 +1,41 @@
+{
+ "clippy": {
+  "updated": "2026-11-08T04:27:13+00:00",
+  "head": "b5dc75ee755eb5ad5264d1bf2ab52426fb43a4d8",
+  "note": "written by tools/gauntlet/run.py --update-baseline",
+  "totals": {
+   "crates": 4,
+   "lints": 1,
+   "did_not_compile": 0
+  },
+  "failures": [
+   "dc2tk-assets::single_element_loop@crates/dc2tk-assets/src/map_export.rs"
+  ]
+ },
+ "platform": "linux-x86_64",
+ "cargo-test": {
+  "updated": "2026-11-08T04:43:35+00:00",
+  "head": "b5dc75ee755eb5ad5264d1bf2ab52426fb43a4d8",
+  "note": "written by tools/gauntlet/run.py --update-baseline, then edited: the run caught dc2tk-assets::limits::tests::the_port_profile_holds_the_headers_values_and_retail_where_the_engine_keeps_it failing, a test work package B was adding at that moment, not a failure that predates the work; it is not known here. PLAN.md's a_disc_is_not_written_over_the_image_it_is_made_from passed on this machine.",
+  "totals": {
+   "total": 784,
+   "passed": 784,
+   "failed": 0,
+   "ignored": 36,
+   "did_not_compile": 0
+  },
+  "failures": []
+ },
+ "port-tests": {
+  "updated": "2026-11-08T04:44:00+00:00",
+  "head": "b5dc75ee755eb5ad5264d1bf2ab52426fb43a4d8",
+  "note": "written by tools/gauntlet/run.py --update-baseline",
+  "totals": {
+   "total": 23,
+   "passed": 23,
+   "failed": 0,
+   "iso": false
+  },
+  "failures": []
+ }
+}
