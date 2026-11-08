@@ -37,6 +37,11 @@ SDK = os.path.join(ROOT, "build", "port", "sdk")
 DEBUG_BINARY = os.path.join(ROOT, "build", "port", "dc2-debug")
 GOLDEN_BASELINE = os.path.join(ROOT, "build", "port", "golden", "baseline-linux")
 EVENT_LIST = os.path.join(ROOT, "extracted", "disc", "event", "view_pal.txt")
+# The release profile keeps debug = 1, which made build/release 8 GB on a shared 40 GB disk; the gauntlet's
+# builds need no debug info and no incremental cache (about a third of that). The cargo commands the report
+# records carry these, so a reproduction builds the same way.
+CARGO_ENV = {"CARGO_INCREMENTAL": "0", "CARGO_PROFILE_RELEASE_DEBUG": "0"}
+CARGO_PREFIX = " ".join("%s=%s" % kv for kv in sorted(CARGO_ENV.items()))
 
 
 def _out(ctx, name):
@@ -45,10 +50,23 @@ def _out(ctx, name):
     return path
 
 
+def _disk_guard(ctx, name, gate):
+    """An error stage when the disk holding the cargo target has less than --min-free-gb free (a build on a
+    full disk fails like a broken crate), else None."""
+    minimum = ctx["options"].get("min_free_gb", 4.0)
+    free = util.disk_free_gb(os.path.join(ROOT, "build")) if hasattr(util, "disk_free_gb") else None
+    if free is None or not minimum or free >= minimum:
+        return None
+    return report.stage(name, gate, "error", "only %.1f GB free on the disk holding %s/build (the gauntlet wants %.1f GB, --min-free-gb): "
+                        "free space first; the stage did not start" % (free, ROOT, minimum), details={"free_gb": round(free, 2)})
+
+
 def _path_env():
+    """clang 20 first on PATH, and the cargo settings above for any tool that builds the crates."""
+    env = dict(CARGO_ENV)
     if os.path.isdir(CLANG_BIN):
-        return {"PATH": CLANG_BIN + os.pathsep + os.environ.get("PATH", "")}
-    return {}
+        env["PATH"] = CLANG_BIN + os.pathsep + os.environ.get("PATH", "")
+    return env
 
 
 def _version(cmd, pattern, env=None):
@@ -172,15 +190,18 @@ def stage_fmt(ctx):
 
 
 def stage_clippy(ctx):
+    full = _disk_guard(ctx, "clippy", "G0")
+    if full:
+        return full
     out = _out(ctx, "clippy")
     lints, broken, evidence, commands = [], [], [], []
     duration = 0.0
     for crate in CRATES:
         result = util.run(["cargo", "clippy", "--release", "-p", crate, "--no-deps", "--all-targets", "--", "-D", "warnings"],
-                          log=os.path.join(out, crate + ".log"), cwd=os.path.join(ROOT, "src"), timeout=ctx["options"]["timeout"])
+                          log=os.path.join(out, crate + ".log"), cwd=os.path.join(ROOT, "src"), timeout=ctx["options"]["timeout"], env=CARGO_ENV)
         duration += result["duration"]
         evidence.append(result["log"])
-        commands.append("(cd src && %s)" % result["command"])
+        commands.append("(cd src && %s %s)" % (CARGO_PREFIX, result["command"]))
         lints += clippy_lints(result["output"], crate)
         errors = compile_errors(result["output"])
         if errors or (result["exit"] != 0 and not lints):
@@ -197,15 +218,18 @@ def stage_clippy(ctx):
 
 
 def stage_cargo_test(ctx):
+    full = _disk_guard(ctx, "cargo-test", "G0")
+    if full:
+        return full
     out = _out(ctx, "cargo-test")
     total_passed, total_failed, total_ignored, broken, evidence, commands = [], [], [], [], [], []
     duration = 0.0
     for crate in CRATES:
         result = util.run(["cargo", "test", "--release", "-p", crate], log=os.path.join(out, crate + ".log"),
-                          cwd=os.path.join(ROOT, "src"), timeout=ctx["options"]["timeout"])
+                          cwd=os.path.join(ROOT, "src"), timeout=ctx["options"]["timeout"], env=CARGO_ENV)
         duration += result["duration"]
         evidence.append(result["log"])
-        commands.append("(cd src && %s)" % result["command"])
+        commands.append("(cd src && %s %s)" % (CARGO_PREFIX, result["command"]))
         passed, failed, ignored = cargo_results(result["output"])
         if result["exit"] != 0 and not failed and not passed:
             broken.append("%s: %s" % (crate, (compile_errors(result["output"]) or [util.tail(result["output"], 1)])[0][:160]))
@@ -274,11 +298,14 @@ def stage_port_tests(ctx):
 
 
 def stage_limits(ctx):
+    full = _disk_guard(ctx, "limits", "G1")
+    if full:
+        return full
     out = _out(ctx, "limits")
     cmd = ["cargo", "test", "--release", "-p", "dc2tk-assets", "limits"]
-    result = util.run(cmd, log=os.path.join(out, "limits.log"), cwd=os.path.join(ROOT, "src"), timeout=ctx["options"]["timeout"])
+    result = util.run(cmd, log=os.path.join(out, "limits.log"), cwd=os.path.join(ROOT, "src"), timeout=ctx["options"]["timeout"], env=CARGO_ENV)
     passed, failed, _ = cargo_results(result["output"])
-    reproduce = "(cd src && %s)" % result["command"]
+    reproduce = "(cd src && %s %s)" % (CARGO_PREFIX, result["command"])
     if result["exit"] != 0 and not passed and not failed:
         return report.stage("limits", "G1", "fail", "dc2tk-assets did not build: " + util.tail(result["output"], 2)[:300], result["duration"],
                             reproduce, result["log"], [result["log"]])
@@ -365,6 +392,7 @@ def main(argv=None):
     ap.add_argument("--timeout", type=int, default=3600)
     ap.add_argument("--iso", help="retail disc for port/tests/run.py --iso and the disc stages (else DC2_ISO, dc2.iso)")
     ap.add_argument("--report-dir")
+    ap.add_argument("--min-free-gb", type=float, default=4.0, help="cargo stages do not start with less free disk (0: no check)")
     options = ap.parse_args(argv)
     if options.list:
         for name, gate, _ in STAGES:
@@ -376,7 +404,7 @@ def main(argv=None):
     ctx = {"root": ROOT, "report_dir": report_dir, "repos": repos,
            "baseline_path": os.path.join(HERE, "baselines", baseline.platform_name() + ".json"),
            "options": {"update_baseline": options.update_baseline, "timeout": options.timeout, "iso": options.iso,
-                       "keep_going": options.keep_going}}
+                       "keep_going": options.keep_going, "min_free_gb": options.min_free_gb}}
     os.makedirs(report_dir, exist_ok=True)
     rep = report.new_report(argv, ctx["options"], repos)
     rep["repository"] = "DC2-Toolkit"
