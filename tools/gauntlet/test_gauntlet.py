@@ -76,6 +76,20 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         self.assertEqual(run.main(["--list"]), 0)
 
+    def test_cargo_settings_keep_the_target_small(self):
+        self.assertEqual(run.CARGO_ENV, {"CARGO_INCREMENTAL": "0", "CARGO_PROFILE_RELEASE_DEBUG": "0"})
+        self.assertEqual({k: run._path_env()[k] for k in run.CARGO_ENV}, run.CARGO_ENV)
+
+    def test_disk_guard(self):
+        ctx = {"options": {"min_free_gb": 0}}
+        self.assertIsNone(run._disk_guard(ctx, "clippy", "G0"))
+        ctx["options"]["min_free_gb"] = 1e9
+        result = run._disk_guard(ctx, "clippy", "G0")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("GB free", result["summary"])
+        self.assertEqual(run.stage_clippy(ctx)["status"], "error")
+        self.assertEqual(run.stage_limits(ctx)["status"], "error")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

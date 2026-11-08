@@ -1,0 +1,188 @@
+{
+ "gauntlet_version": 1,
+ "created": "2026-11-08T15:53:05+00:00",
+ "host": {
+  "hostname": "vm",
+  "os": "Linux-6.18.44-fc-v310-x86_64-with-glibc2.39",
+  "machine": "x86_64",
+  "cpus": 4,
+  "memory_gb": 15.7,
+  "python": "3.13.18"
+ },
+ "repos": {
+  "DC2-Toolkit": {
+   "path": "/home/user/DC2-Toolkit",
+   "present": true,
+   "git": true,
+   "head": "8e4137172aab364489bae249c4aca84401935733",
+   "branch": "claude/dark-cloud-2-engine-yr3rlk",
+   "dirty": true
+  },
+  "ChronicleTwo": {
+   "path": "/home/user/ChronicleTwo",
+   "present": true,
+   "git": true,
+   "head": "58dd0868a899bd5e97a12ccd8629466c403cf34f",
+   "branch": "claude/dark-cloud-2-engine-yr3rlk",
+   "dirty": true
+  }
+ },
+ "arguments": [
+  "--stage",
+  "env",
+  "--stage",
+  "fmt",
+  "--stage",
+  "tool-tests",
+  "--stage",
+  "port-tests",
+  "--report-dir",
+  "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108"
+ ],
+ "options": {
+  "update_baseline": false,
+  "timeout": 3600,
+  "iso": null,
+  "keep_going": false,
+  "min_free_gb": 4.0
+ },
+ "stages": [
+  {
+   "name": "env",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 0.23,
+   "summary": "9 checks; optional absent: dc2-debug, disc",
+   "command": "python3 -I tools/gauntlet/run.py --stage env",
+   "log": null,
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/env/env.json",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/env/env.txt"
+   ],
+   "baseline": null,
+   "details": {
+    "checks": [
+     {
+      "name": "rustc",
+      "required": true,
+      "ok": true,
+      "detail": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+     },
+     {
+      "name": "cargo",
+      "required": true,
+      "ok": true,
+      "detail": "cargo 1.99.1 (5f94df478 2026-08-27)"
+     },
+     {
+      "name": "clang",
+      "required": true,
+      "ok": true,
+      "detail": "Ubuntu clang version 20.1.8 (++20250804090239+87f0227cb601-1~exp1~20250804210352.139) (PATH has /opt/clang20/bin first)"
+     },
+     {
+      "name": "sdl3",
+      "required": false,
+      "ok": true,
+      "detail": "3.4.18"
+     },
+     {
+      "name": "python",
+      "required": true,
+      "ok": true,
+      "detail": "3.13.18"
+     },
+     {
+      "name": "workspace",
+      "required": true,
+      "ok": true,
+      "detail": "/home/user/DC2-Toolkit/src/Cargo.toml"
+     },
+     {
+      "name": "port-sdk",
+      "required": false,
+      "ok": true,
+      "detail": "/home/user/DC2-Toolkit/build/port/sdk"
+     },
+     {
+      "name": "dc2-debug",
+      "required": false,
+      "ok": false,
+      "detail": "/home/user/DC2-Toolkit/build/port/dc2-debug absent (tools/port.py builds it); the disc stages will not run"
+     },
+     {
+      "name": "disc",
+      "required": false,
+      "ok": false,
+      "detail": "no dc2.iso at the root, DC2_ISO or --iso: the disc stages will not run"
+     }
+    ]
+   }
+  },
+  {
+   "name": "fmt",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 1.69,
+   "summary": "cargo fmt --check clean",
+   "command": "(cd src && cargo fmt --all -- --check)",
+   "log": "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/fmt/fmt.log",
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/fmt/fmt.log"
+   ],
+   "baseline": null,
+   "details": {
+    "files": []
+   }
+  },
+  {
+   "name": "tool-tests",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 0.76,
+   "summary": "2 test scripts, 0 failed",
+   "command": "/usr/local/bin/python3 -I tools/test_engine_mods.py ; /usr/local/bin/python3 -I tools/test_native_prepare.py",
+   "log": null,
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/tool-tests/test_engine_mods.py.log",
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/tool-tests/test_native_prepare.py.log"
+   ],
+   "baseline": null,
+   "details": {
+    "failed": []
+   }
+  },
+  {
+   "name": "port-tests",
+   "gate": "G0",
+   "status": "pass",
+   "duration_s": 17.97,
+   "summary": "24 native checks: 24 passed, 0 failed; 0 new, 0 known, 0 fixed against linux-x86_64.json",
+   "command": "PATH=/opt/clang20/bin:$PATH /usr/local/bin/python3 -I port/tests/run.py",
+   "log": "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/port-tests/port-tests.log",
+   "evidence": [
+    "/home/user/DC2-Toolkit/tools/gauntlet/report/light-20261108/port-tests/port-tests.log"
+   ],
+   "baseline": {
+    "new": [],
+    "known": [],
+    "fixed": [],
+    "unseen": [],
+    "has_baseline": true
+   },
+   "details": {
+    "counts": {
+     "total": 24,
+     "passed": 24,
+     "failed": 0,
+     "iso": false
+    },
+    "failures": []
+   }
+  }
+ ],
+ "verdict": "pass",
+ "exit_code": 0,
+ "repository": "DC2-Toolkit",
+ "baseline": "/home/user/DC2-Toolkit/tools/gauntlet/baselines/linux-x86_64.json"
+}

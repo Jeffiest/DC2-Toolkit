@@ -16,6 +16,13 @@ python3 -I tools/gauntlet/run.py --json          # print only the report path
 python3 -I tools/gauntlet/test_gauntlet.py       # the runner's parsers
 ```
 
+Every cargo command runs with `CARGO_INCREMENTAL=0 CARGO_PROFILE_RELEASE_DEBUG=0` (the workspace's release
+profile has `debug = 1`, which made `build/release` 8 GB on a shared 40 GB disk), and the commands the report
+records carry both. The `clippy`, `cargo-test` and `limits` stages do not start with less than
+`--min-free-gb` (default 4) free on the disk holding `build/`: they are an error with the free space in the
+summary, since a build on a full disk fails like a broken crate. ChronicleTwo's runner passes its own
+`--min-free-gb` through.
+
 | Gate | Stage | Check | Green when |
 |---|---|---|---|
 | G0 | `env` | rustc 1.99, cargo, clang 20 (`/opt/clang20/bin` first on PATH, or `DC2TK_CLANG_BIN`), Python >= 3.10, `src/Cargo.toml`; sdl3, the port SDK, `dc2-debug` and a disc reported | the required ones are there |
@@ -63,7 +70,14 @@ marked *(hands)*) is ChronicleTwo's `GAUNTLET.md`, "Agent protocol".
 - The system clang is 18; the port and its tests want 20, which is at `/opt/clang20/bin`. The runner puts
   it first on PATH for `env`, `port-tests`, `tool-tests` and the disc stages; a person runs
   `PATH=/opt/clang20/bin:$PATH python3 -I port/tests/run.py`.
-- The port SDK (`build/port/sdk`) is already built here by `tools/port_sdk.py`; pkg-config does not see its
-  SDL3, which is fine.
+- The port SDK (`build/port/sdk`) is built by `tools/port_sdk.py`; pkg-config does not see its SDL3, which is
+  fine. `ffmpeg.org` is unreachable through this machine's proxy (connection reset), so its FFmpeg 8.0.1 was
+  built from `git clone --depth 1 --branch n8.0.1 https://github.com/FFmpeg/FFmpeg
+  build/port/sdk-work/ffmpeg-8.0.1`, calling `port_sdk.build_ffmpeg()` with `fetch` replaced by that folder
+  (same configure flags); SDL's GitHub release tarball downloads. The work folders under `sdk-work` can go
+  once the SDK is installed.
+- Disk: after a gauntlet run remove `build/release` (the cargo target, a few GB even without debug info)
+  unless another stage needs it next; never all of `build/`, which holds the port SDK. Check `df -h /` before
+  a cargo stage; under 4 GB free, stop and say so.
 - Another agent's uncommitted edits in `src/` can make `fmt` or a crate fail while they work. That is a
   stage failure in the report, as it should be, not a runner problem; rerun once they have committed.
